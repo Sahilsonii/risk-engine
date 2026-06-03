@@ -40,7 +40,7 @@ export function TransactionTable({ transactions, loading, showTenant = false, sh
     <div className="overflow-x-auto">
       <table id="transaction-table" className="w-full text-sm">
         <thead>
-          <tr className="border-b border-zinc-800 text-xs text-zinc-500 uppercase tracking-wider">
+          <tr className="border-b border-zinc-200 dark:border-zinc-800 text-xs text-zinc-500 uppercase tracking-wider">
             <th className="px-4 py-3 text-left font-medium">Transaction ID</th>
             {showTenant && <th className="px-4 py-3 text-left font-medium">Tenant</th>}
             {showMetadata && <th className="px-4 py-3 text-left font-medium">Customer</th>}
@@ -50,37 +50,37 @@ export function TransactionTable({ transactions, loading, showTenant = false, sh
             <th className="px-4 py-3 text-left font-medium">Timestamp</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-zinc-800/50">
+        <tbody className="divide-y divide-zinc-200/50 dark:divide-zinc-800/50">
           {transactions.map((txn) => (
             <tr
               key={txn.id}
-              className="hover:bg-zinc-800/30 transition-colors duration-100 group"
+              className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors duration-100 group"
             >
-              <td className="px-4 py-3 font-mono text-xs text-zinc-400 group-hover:text-zinc-300">
+              <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400 group-hover:text-zinc-800 dark:group-hover:text-zinc-300">
                 {txn.id.substring(0, 8)}…{txn.id.substring(28)}
               </td>
               {showTenant && (
-                <td className="px-4 py-3 font-mono text-xs text-blue-400">
+                <td className="px-4 py-3 font-mono text-xs text-blue-600 dark:text-blue-400">
                   {txn.tenant_id}
                 </td>
               )}
               {showMetadata && (
-                <td className="px-4 py-3 text-xs text-zinc-300 font-medium">
+                <td className="px-4 py-3 text-xs text-zinc-700 dark:text-zinc-300 font-medium">
                   {txn.customer_name || 'N/A'}
                 </td>
               )}
               {showMetadata && (
-                <td className="px-4 py-3 text-xs text-zinc-500 font-mono">
+                <td className="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-500 font-mono">
                   {txn.location || 'N/A'}
                 </td>
               )}
-              <td className="px-4 py-3 text-right font-mono text-zinc-200 tabular-nums">
+              <td className="px-4 py-3 text-right font-mono text-zinc-800 dark:text-zinc-200 tabular-nums">
                 {formatAmount(Number(txn.amount))}
               </td>
               <td className="px-4 py-3 text-center">
                 <StatusBadge status={txn.status} />
               </td>
-              <td className="px-4 py-3 font-mono text-xs text-zinc-500">
+              <td className="px-4 py-3 font-mono text-xs text-zinc-400 dark:text-zinc-500">
                 {formatDate(txn.created_at)}
               </td>
             </tr>

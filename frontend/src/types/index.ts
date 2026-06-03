@@ -29,6 +29,7 @@ export interface AIInsights {
   rejection_rate:   string;
   flagged:          string;
   total_volume:     string;
+  chart_explanation?: string;
 }
 
 export interface Stats {

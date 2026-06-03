@@ -36,4 +36,7 @@ export const api = {
 
   getRecent: (token: string) =>
     fetchWithAuth<{ data: any[] }>('/api/recent', token),
+
+  getNews: (token: string) =>
+    fetchWithAuth<{ articles: any[] }>('/api/news', token),
 };
