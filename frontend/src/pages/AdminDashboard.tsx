@@ -108,7 +108,7 @@ export function AdminDashboard() {
                       <td className="px-4 py-2 text-right font-mono tabular-nums text-zinc-700 dark:text-zinc-300">{t.total}</td>
                       <td className="px-4 py-2 text-right font-mono tabular-nums text-emerald-600 dark:text-emerald-400">{t.approved}</td>
                       <td className="px-4 py-2 text-right font-mono tabular-nums text-amber-600 dark:text-amber-400">{t.flagged}</td>
-                      <td className="px-4 py-2 text-right font-mono tabular-nums text-red-650 dark:text-red-400">{t.rejected}</td>
+                      <td className="px-4 py-2 text-right font-mono tabular-nums text-red-600 dark:text-red-400">{t.rejected}</td>
                       <td className="px-4 py-2 text-right font-mono tabular-nums text-zinc-700 dark:text-zinc-300">
                         ${Number(t.volume).toLocaleString('en-US', { maximumFractionDigits: 0 })}
                       </td>
@@ -170,7 +170,7 @@ export function AdminDashboard() {
               >
                 ← Prev
               </button>
-              <span className="text-xs font-mono text-zinc-455 dark:text-zinc-500">{page} / {pagination.pages}</span>
+              <span className="text-xs font-mono text-zinc-500 dark:text-zinc-500">{page} / {pagination.pages}</span>
               <button
                 id="admin-next-page-btn"
                 disabled={page >= pagination.pages}

@@ -27,7 +27,7 @@ export function KPICard({ label, value, sub, accent = 'zinc', infoText, loadingI
         <span className="text-xs text-zinc-400 dark:text-zinc-500 uppercase tracking-widest font-medium">{label}</span>
         {infoText && (
           <div
-            className="relative flex items-center justify-center cursor-help text-zinc-400 dark:text-zinc-650 hover:text-zinc-650 dark:hover:text-zinc-400 transition-colors p-1.5 -m-1.5"
+            className="relative flex items-center justify-center cursor-help text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors p-1.5 -m-1.5"
             onMouseEnter={() => setShowTooltip(true)}
             onMouseLeave={() => setShowTooltip(false)}
           >

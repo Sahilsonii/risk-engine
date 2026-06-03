@@ -207,7 +207,7 @@ export function MerchantDashboard() {
   return (
     <div
       id="merchant-dashboard"
-      className="flex bg-zinc-50 dark:bg-zinc-950 min-h-screen text-zinc-805 dark:text-zinc-100 transition-colors duration-200"
+      className="flex bg-zinc-50 dark:bg-zinc-950 min-h-screen text-zinc-800 dark:text-zinc-100 transition-colors duration-200"
       style={{ fontFamily: 'Inter, sans-serif' }}
     >
       <Sidebar />
@@ -333,7 +333,7 @@ export function MerchantDashboard() {
         {activeTab === 'transactions' && (
           <div className="bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden">
             <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center">
-              <h2 className="text-xs font-medium text-zinc-750 dark:text-zinc-300 uppercase tracking-wider">Transaction History</h2>
+              <h2 className="text-xs font-medium text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">Transaction History</h2>
               {pagination && (
                 <span className="text-xs text-zinc-400 dark:text-zinc-600 font-mono">
                   {pagination.total} total · Page {pagination.page} of {pagination.pages}
@@ -350,7 +350,7 @@ export function MerchantDashboard() {
                   id="prev-page-btn"
                   disabled={page <= 1}
                   onClick={() => setPage((p: number) => p - 1)}
-                  className="text-xs px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 rounded-md text-zinc-550 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="text-xs px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   ← Prev
                 </button>
@@ -359,7 +359,7 @@ export function MerchantDashboard() {
                   id="next-page-btn"
                   disabled={page >= pagination.pages}
                   onClick={() => setPage((p: number) => p + 1)}
-                  className="text-xs px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 rounded-md text-zinc-550 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="text-xs px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   Next →
                 </button>
@@ -396,7 +396,7 @@ export function MerchantDashboard() {
                       <div className="flex items-center justify-between mb-4">
                         <div>
                           <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider mb-0.5">Real-time Volume Velocity Monitor</h3>
-                          <p className="text-[10px] text-zinc-450 dark:text-zinc-500">Hourly volume velocity aggregated in 5-minute intervals. Hover over bars to audit risk distribution.</p>
+                          <p className="text-[10px] text-zinc-400 dark:text-zinc-500">Hourly volume velocity aggregated in 5-minute intervals. Hover over bars to audit risk distribution.</p>
                         </div>
                         <div className="flex items-center gap-4 text-[10px]">
                           <div className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
@@ -614,7 +614,7 @@ export function MerchantDashboard() {
                     <div className="bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg p-5 flex flex-col items-center relative">
                       <div className="self-start w-full mb-4">
                         <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider mb-0.5">Status Distribution</h3>
-                        <p className="text-[10px] text-zinc-450 dark:text-zinc-500">Transaction distribution breakdown. Hover over arcs to inspect.</p>
+                        <p className="text-[10px] text-zinc-400 dark:text-zinc-500">Transaction distribution breakdown. Hover over arcs to inspect.</p>
                       </div>
 
                       <div className="relative w-[200px] h-[200px] flex items-center justify-center my-2">
@@ -681,7 +681,7 @@ export function MerchantDashboard() {
                           <span className="text-[10px] uppercase font-bold tracking-widest text-zinc-400 dark:text-zinc-500">
                             {hoveredSlice ? hoveredSlice : 'Total'}
                           </span>
-                          <span className="text-lg font-mono font-bold text-zinc-850 dark:text-zinc-100 mt-0.5">
+                          <span className="text-lg font-mono font-bold text-zinc-800 dark:text-zinc-100 mt-0.5">
                             {hoveredSlice === 'approved' ? approvedCount.toLocaleString() :
                              hoveredSlice === 'flagged' ? flaggedCount.toLocaleString() :
                              hoveredSlice === 'rejected' ? rejectedCount.toLocaleString() :
@@ -720,7 +720,7 @@ export function MerchantDashboard() {
                               }`} />
                               <div className="flex flex-col min-w-0">
                                 <span className="text-[10px] font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">{slice.name}</span>
-                                <span className="text-xs font-mono font-bold text-zinc-850 dark:text-zinc-100">{slice.count.toLocaleString()}</span>
+                                <span className="text-xs font-mono font-bold text-zinc-800 dark:text-zinc-100">{slice.count.toLocaleString()}</span>
                               </div>
                             </div>
                           );
@@ -790,7 +790,7 @@ export function MerchantDashboard() {
                 <div className="bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden">
                   <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center">
                     <h2 className="text-xs font-medium text-zinc-700 dark:text-zinc-300 uppercase tracking-wider font-semibold">Flagged/Rejected Transactions</h2>
-                    <span className="text-xs text-zinc-400 dark:text-zinc-650 font-mono">
+                    <span className="text-xs text-zinc-400 dark:text-zinc-500 font-mono">
                       {transactions.filter((t: any) => t.status === 'FLAGGED' || t.status === 'REJECTED').length} matches
                     </span>
                   </div>
@@ -809,7 +809,7 @@ export function MerchantDashboard() {
                               <div className="flex items-center gap-3">
                                 <span className="font-mono text-xs text-zinc-400 dark:text-zinc-500">{txn.id.substring(0, 8)}…{txn.id.substring(28)}</span>
                                 <span className="text-xs text-zinc-700 dark:text-zinc-300 font-medium">{txn.customer_name || 'N/A'}</span>
-                                <span className="text-xs text-zinc-550 dark:text-zinc-500 font-mono">{txn.location || 'N/A'}</span>
+                                <span className="text-xs text-zinc-500 dark:text-zinc-500 font-mono">{txn.location || 'N/A'}</span>
                               </div>
                               <div className="flex items-center gap-3">
                                 <span className="text-sm font-mono font-semibold text-zinc-800 dark:text-zinc-200">${Number(txn.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
@@ -931,7 +931,7 @@ export function MerchantDashboard() {
                         >
                           {item.title}
                         </a>
-                        <span className="shrink-0 px-2 py-0.5 rounded text-[9px] uppercase font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-750">
+                        <span className="shrink-0 px-2 py-0.5 rounded text-[9px] uppercase font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
                           {item.source}
                         </span>
                       </div>
@@ -1002,18 +1002,18 @@ export function MerchantDashboard() {
                                     <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">{mem.publicUserData.identifier}</span>
                                   </div>
                                 </td>
-                                <td className="px-4 py-3 text-zinc-650 dark:text-zinc-300">
+                                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
                                   <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
                                     roleDisplay === 'Administrator' 
                                       ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20' 
-                                      : 'bg-zinc-100 dark:bg-zinc-850 text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700/50'
+                                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700/50'
                                   }`}>
                                     {roleDisplay}
                                   </span>
                                 </td>
                                 <td className="px-4 py-3 text-right">
                                   {isSelf ? (
-                                    <span className="text-[10px] text-zinc-400 dark:text-zinc-650 italic px-2">Current User</span>
+                                    <span className="text-[10px] text-zinc-400 dark:text-zinc-500 italic px-2">Current User</span>
                                   ) : isOrgAdmin ? (
                                     <button
                                       onClick={() => handleRemoveMember(mem)}
@@ -1042,8 +1042,8 @@ export function MerchantDashboard() {
                       {/* Invite Form */}
                       <div className="bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 flex flex-col gap-4">
                         <div>
-                          <h3 className="text-xs font-semibold text-zinc-750 dark:text-zinc-200 uppercase tracking-wider mb-1">Invite New Member</h3>
-                          <p className="text-[11px] text-zinc-450 dark:text-zinc-500">Send an invitation email to join this organization.</p>
+                          <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider mb-1">Invite New Member</h3>
+                          <p className="text-[11px] text-zinc-400 dark:text-zinc-500">Send an invitation email to join this organization.</p>
                         </div>
                         
                         <form onSubmit={handleInvite} className="flex flex-col gap-3">
@@ -1055,7 +1055,7 @@ export function MerchantDashboard() {
                               placeholder="email@example.com"
                               value={inviteEmail}
                               onChange={(e: any) => setInviteEmail(e.target.value)}
-                              className="bg-zinc-50 dark:bg-zinc-855 border border-zinc-200 dark:border-zinc-800 rounded px-3 py-2 text-xs text-zinc-800 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors"
+                              className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded px-3 py-2 text-xs text-zinc-800 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors"
                             />
                           </div>
                           
@@ -1064,7 +1064,7 @@ export function MerchantDashboard() {
                             <select
                               value={inviteRole}
                               onChange={(e: any) => setInviteRole(e.target.value as any)}
-                              className="bg-zinc-50 dark:bg-zinc-855 border border-zinc-200 dark:border-zinc-800 rounded px-2.5 py-2 text-xs text-zinc-700 dark:text-zinc-300 focus:outline-none focus:border-blue-500 transition-colors"
+                              className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded px-2.5 py-2 text-xs text-zinc-700 dark:text-zinc-300 focus:outline-none focus:border-blue-500 transition-colors"
                             >
                               <option value="org:member">Member</option>
                               <option value="org:admin">Administrator</option>
@@ -1094,13 +1094,13 @@ export function MerchantDashboard() {
 
                       {/* Pending Invitations list */}
                       <div className="bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 flex flex-col gap-3">
-                        <h3 className="text-xs font-semibold text-zinc-750 dark:text-zinc-200 uppercase tracking-wider">Pending Invitations</h3>
+                        <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider">Pending Invitations</h3>
                         
                         <div className="divide-y divide-zinc-200/50 dark:divide-zinc-800/60 max-h-60 overflow-y-auto">
                           {!invitations?.data ? (
-                            <div className="text-center text-zinc-400 dark:text-zinc-650 text-[11px] py-4">Loading invites...</div>
+                            <div className="text-center text-zinc-400 dark:text-zinc-500 text-[11px] py-4">Loading invites...</div>
                           ) : invitations.data.length === 0 ? (
-                            <div className="text-center text-zinc-400 dark:text-zinc-650 text-[11px] py-4">No pending invitations.</div>
+                            <div className="text-center text-zinc-400 dark:text-zinc-500 text-[11px] py-4">No pending invitations.</div>
                           ) : (
                             invitations.data.map((inv: any) => (
                               <div key={inv.id} className="py-2.5 flex items-center justify-between gap-2 text-[11px]">
@@ -1128,8 +1128,8 @@ export function MerchantDashboard() {
                       {/* Organization Profile Details */}
                       <div className="bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg p-5 flex flex-col gap-4">
                         <div>
-                          <h3 className="text-xs font-semibold text-zinc-750 dark:text-zinc-200 uppercase tracking-wider mb-1">Organization Profile</h3>
-                          <p className="text-[11px] text-zinc-450 dark:text-zinc-500">Details of your active organization.</p>
+                          <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider mb-1">Organization Profile</h3>
+                          <p className="text-[11px] text-zinc-400 dark:text-zinc-500">Details of your active organization.</p>
                         </div>
                         
                         <div className="flex items-center gap-3 bg-zinc-100 dark:bg-zinc-950 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800/85">
@@ -1146,7 +1146,7 @@ export function MerchantDashboard() {
                           </div>
                         </div>
 
-                        <div className="text-[11px] text-zinc-650 dark:text-zinc-400 bg-blue-500/5 border border-blue-200 dark:border-blue-900/10 rounded-lg p-3 leading-relaxed">
+                        <div className="text-[11px] text-zinc-600 dark:text-zinc-400 bg-blue-500/5 border border-blue-200 dark:border-blue-900/10 rounded-lg p-3 leading-relaxed">
                           <div className="font-semibold text-blue-600 dark:text-blue-400 mb-1 flex items-center gap-1">
                             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
                             Member Access
@@ -1157,8 +1157,8 @@ export function MerchantDashboard() {
 
                       {/* Leave Organization Card */}
                       <div className="bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg p-5 flex flex-col gap-3">
-                        <h3 className="text-xs font-semibold text-zinc-750 dark:text-zinc-200 uppercase tracking-wider">Leave Organization</h3>
-                        <p className="text-[11px] text-zinc-450 dark:text-zinc-500 leading-relaxed">
+                        <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider">Leave Organization</h3>
+                        <p className="text-[11px] text-zinc-400 dark:text-zinc-500 leading-relaxed">
                           Leaving will revoke your access to this organization's transactions and dashboard.
                         </p>
                         
