@@ -131,6 +131,19 @@ router.get('/stats', async (req: Request, res: Response) => {
       FROM transactions
     `);
 
+    // Fetch chart data: 5-minute intervals for the last 1 hour
+    const chartResult = await client.query(`
+      SELECT 
+        date_trunc('minute', created_at) - (CAST(extract(minute FROM created_at) AS integer) % 5) * interval '1 minute' AS bucket,
+        COUNT(*)::integer AS count,
+        COALESCE(SUM(amount), 0)::numeric AS volume,
+        COUNT(*) FILTER (WHERE status = 'REJECTED' OR status = 'FLAGGED')::integer AS flagged_rejected
+      FROM transactions
+      WHERE created_at >= NOW() - INTERVAL '1 hour'
+      GROUP BY bucket
+      ORDER BY bucket ASC
+    `);
+
     await client.query('COMMIT');
 
     // Queue depth from Redis (admin only)
@@ -169,12 +182,84 @@ router.get('/stats', async (req: Request, res: Response) => {
       }
     }
 
+    // AI insights caching
+    const cacheKey = `api:stats:insights:${dbRole}:${tenantId || 'global'}`;
+    let aiInsights = {
+      total: 'Total number of transactions processed by the risk engine.',
+      approval_rate: 'Percentage of transactions successfully cleared.',
+      rejection_rate: 'Percentage of transactions blocked due to high risk.',
+      flagged: 'Transactions currently held for manual investigator review.',
+      total_volume: 'Aggregate dollar volume processed in the current period.'
+    };
+
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        aiInsights = JSON.parse(cached);
+      } else {
+        const apiKey = process.env.gemini_api_key || process.env.GEMINI_API_KEY;
+        if (apiKey) {
+          const stats = statsResult.rows[0];
+          const totalCount = parseInt(stats.total, 10);
+          const pendingCount = parseInt(stats.pending, 10);
+          const rejectedCount = parseInt(stats.rejected, 10);
+          const rejectionRate = (totalCount - pendingCount) > 0 
+            ? ((rejectedCount / (totalCount - pendingCount)) * 100).toFixed(1)
+            : '0.0';
+
+          const prompt = `
+            You are a banking risk data analyst for NewEra AI.
+            Analyze these live merchant statistics and write a short, highly professional, single-sentence insight (max 15 words) for each metric explaining what the current state means.
+            Metrics:
+            - Total Transactions: ${stats.total}
+            - Approval Rate: ${stats.approval_rate}%
+            - Rejection Rate: ${rejectionRate}%
+            - Flagged Transactions: ${stats.flagged}
+            - Total Volume: $${Number(stats.total_volume).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+
+            Format your output as a raw JSON object (no markdown, no backticks, no other text) with these exact keys:
+            {
+              "total": "insight about total count",
+              "approval_rate": "insight about approval rate",
+              "rejection_rate": "insight about rejection rate",
+              "flagged": "insight about flagged risk",
+              "total_volume": "insight about total volume"
+            }
+          `;
+
+          const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+          const response = await fetch(geminiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }]
+            })
+          });
+
+          if (response.ok) {
+            const resData = await response.json() as any;
+            const rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+            const cleanedText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+            const parsed = JSON.parse(cleanedText);
+            if (parsed.total && parsed.approval_rate && parsed.rejection_rate && parsed.flagged && parsed.total_volume) {
+              aiInsights = parsed;
+              await redis.setEx(cacheKey, 60, JSON.stringify(aiInsights));
+            }
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Failed to load/generate AI KPI insights');
+    }
+
     logger.info({ path: '/api/stats', status: 200 }, 'Response sent');
 
     res.json({
       ...statsResult.rows[0],
       queue_depth:       queueDepth,
       tenant_breakdown:  tenantBreakdown,
+      chart_data:        chartResult.rows,
+      ai_insights:       aiInsights,
     });
   } catch (err) {
     await client.query('ROLLBACK');

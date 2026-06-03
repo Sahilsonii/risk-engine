@@ -16,6 +16,21 @@ export interface Transaction {
   merchant_name?: string;
 }
 
+export interface ChartBucket {
+  bucket:           string;
+  count:            number;
+  volume:           string | number;
+  flagged_rejected: number;
+}
+
+export interface AIInsights {
+  total:            string;
+  approval_rate:    string;
+  rejection_rate:   string;
+  flagged:          string;
+  total_volume:     string;
+}
+
 export interface Stats {
   total:            string;
   approved:         string;
@@ -27,6 +42,8 @@ export interface Stats {
   avg_amount:       string;
   queue_depth:      number;
   tenant_breakdown: TenantBreakdown[];
+  chart_data?:      ChartBucket[];
+  ai_insights?:     AIInsights;
 }
 
 export interface TenantBreakdown {

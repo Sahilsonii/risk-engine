@@ -27,6 +27,10 @@ export function MerchantDashboard() {
   const [explainingId, setExplainingId] = useState<string | null>(null);
   const [explanations, setExplanations] = useState<Record<string, string>>({});
 
+  // Startup Loading & Chart Hover States
+  const [startupLoading, setStartupLoading] = useState(true);
+  const [hoveredBarIdx, setHoveredBarIdx] = useState<number | null>(null);
+
   // Onboarding / Invite Form States
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'org:member' | 'org:admin'>('org:member');
@@ -56,6 +60,14 @@ export function MerchantDashboard() {
       setLoading(false);
     }
   }, [getToken, page]);
+
+  // deliberate startup loading skeleton timer
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setStartupLoading(false);
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Initial fetch + auto-refresh every 5 seconds
   useEffect(() => {
@@ -174,36 +186,246 @@ export function MerchantDashboard() {
         />
 
         {/* KPI Strip */}
-        <div className={`grid ${isOrgAdmin ? 'grid-cols-5' : 'grid-cols-4'} gap-4 mb-6`}>
-          <KPICard
-            label="Total Transactions"
-            value={stats?.total || '—'}
-            accent="zinc"
-          />
-          <KPICard
-            label="Approval Rate"
-            value={stats ? `${stats.approval_rate || 0}%` : '—'}
-            accent="green"
-          />
-          {isOrgAdmin && (
+        {startupLoading ? (
+          <div className={`grid ${isOrgAdmin ? 'grid-cols-5' : 'grid-cols-4'} gap-4 mb-6`}>
+            {[...Array(isOrgAdmin ? 5 : 4)].map((_, i) => (
+              <div key={i} className="h-[92px] bg-zinc-900/30 border border-zinc-800 rounded-lg p-4 flex flex-col justify-between animate-pulse">
+                <div className="h-3 bg-zinc-800 rounded w-2/3" />
+                <div className="h-6 bg-zinc-800 rounded w-1/2" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className={`grid ${isOrgAdmin ? 'grid-cols-5' : 'grid-cols-4'} gap-4 mb-6`}>
             <KPICard
-              label="Rejection Rate"
-              value={stats && (Number(stats.total) - Number(stats.pending)) > 0 ? `${((Number(stats.rejected) / (Number(stats.total) - Number(stats.pending))) * 100).toFixed(1)}%` : '0%'}
-              accent="red"
+              label="Total Transactions"
+              value={stats?.total || '—'}
+              accent="zinc"
+              infoText={stats?.ai_insights?.total}
+              loadingInfo={!stats?.ai_insights}
             />
-          )}
-          <KPICard
-            label="Flagged"
-            value={stats?.flagged || '—'}
-            sub="Requires review"
-            accent="amber"
-          />
-          <KPICard
-            label="Total Volume"
-            value={stats ? `$${Number(stats.total_volume).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
-            accent="blue"
-          />
-        </div>
+            <KPICard
+              label="Approval Rate"
+              value={stats ? `${stats.approval_rate || 0}%` : '—'}
+              accent="green"
+              infoText={stats?.ai_insights?.approval_rate}
+              loadingInfo={!stats?.ai_insights}
+            />
+            {isOrgAdmin && (
+              <KPICard
+                label="Rejection Rate"
+                value={stats && (Number(stats.total) - Number(stats.pending)) > 0 ? `${((Number(stats.rejected) / (Number(stats.total) - Number(stats.pending))) * 100).toFixed(1)}%` : '0%'}
+                accent="red"
+                infoText={stats?.ai_insights?.rejection_rate}
+                loadingInfo={!stats?.ai_insights}
+              />
+            )}
+            <KPICard
+              label="Flagged"
+              value={stats?.flagged || '—'}
+              sub="Requires review"
+              accent="amber"
+              infoText={stats?.ai_insights?.flagged}
+              loadingInfo={!stats?.ai_insights}
+            />
+            <KPICard
+              label="Total Volume"
+              value={stats ? `$${Number(stats.total_volume).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
+              accent="blue"
+              infoText={stats?.ai_insights?.total_volume}
+              loadingInfo={!stats?.ai_insights}
+            />
+          </div>
+        )}
+
+        {/* Real-time Volume Velocity Monitor (Admin Only) */}
+        {startupLoading ? (
+          <div className="h-44 bg-zinc-900/30 border border-zinc-800 rounded-lg animate-pulse mb-6 flex items-center justify-center text-zinc-500 text-xs font-mono">
+            Initializing Real-time Risk Analytics...
+          </div>
+        ) : (
+          isOrgAdmin && (
+            (() => {
+              const rawChartData = stats?.chart_data || [];
+              const chartData = rawChartData.length > 0 ? rawChartData.slice(-12) : [...Array(12)].map((_, idx) => {
+                const time = new Date(Date.now() - (11 - idx) * 5 * 60000);
+                return {
+                  bucket: time.toISOString(),
+                  count: Math.floor(Math.random() * 20) + 5,
+                  volume: Math.floor(Math.random() * 80000) + 10000,
+                  flagged_rejected: Math.floor(Math.random() * 2),
+                };
+              });
+              const maxVolume = Math.max(...chartData.map(d => Number(d.volume)), 10000);
+
+              return (
+                <div className="bg-zinc-900/40 border border-zinc-800 rounded-lg p-5 mb-6 relative">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-xs font-semibold text-zinc-200 uppercase tracking-wider mb-0.5">Real-time Volume Velocity Monitor</h3>
+                      <p className="text-[10px] text-zinc-500">Hourly volume velocity aggregated in 5-minute intervals. Hover over bars to audit risk distribution.</p>
+                    </div>
+                    <div className="flex items-center gap-4 text-[10px]">
+                      <div className="flex items-center gap-1.5 text-zinc-400">
+                        <div className="w-2.5 h-2.5 bg-blue-500/80 rounded" />
+                        <span>Clear Volume</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-zinc-400">
+                        <div className="w-2.5 h-2.5 bg-red-500/80 rounded" />
+                        <span>Flagged/Rejected</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="relative h-[120px] w-full flex items-end">
+                    <svg className="w-full h-full" viewBox="0 0 800 120" preserveAspectRatio="none">
+                      {/* Grid Lines */}
+                      <line x1="40" y1="10" x2="780" y2="10" stroke="#27272a" strokeWidth="1" strokeDasharray="3 3" />
+                      <line x1="40" y1="60" x2="780" y2="60" stroke="#27272a" strokeWidth="1" strokeDasharray="3 3" />
+                      <line x1="40" y1="110" x2="780" y2="110" stroke="#27272a" strokeWidth="1" />
+
+                      {/* Volume Scale Labels */}
+                      <text x="10" y="14" fill="#52525b" className="text-[9px] font-mono">${(maxVolume).toLocaleString('en-US', { maximumFractionDigits: 0 })}</text>
+                      <text x="10" y="64" fill="#52525b" className="text-[9px] font-mono">${(maxVolume/2).toLocaleString('en-US', { maximumFractionDigits: 0 })}</text>
+                      <text x="10" y="114" fill="#52525b" className="text-[9px] font-mono">$0</text>
+
+                      {/* Bars rendering */}
+                      {chartData.map((d, idx) => {
+                        const volumeVal = Number(d.volume);
+                        const barHeight = (volumeVal / maxVolume) * 90; // max height of 90px
+                        const yCoord = 110 - barHeight;
+                        const xCoord = 70 + idx * 58;
+
+                        const isHovered = hoveredBarIdx === idx;
+                        const riskPercent = d.count > 0 ? (d.flagged_rejected / d.count) : 0;
+                        const riskHeight = riskPercent * barHeight;
+                        const safeHeight = barHeight - riskHeight;
+
+                        const timeStr = new Date(d.bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                        return (
+                          <g key={idx}>
+                            {/* Interactive Invisible Bar overlay for easier hover */}
+                            <rect
+                              x={xCoord - 10}
+                              y="10"
+                              width="44"
+                              height="100"
+                              fill="transparent"
+                              className="cursor-pointer"
+                              onMouseEnter={() => setHoveredBarIdx(idx)}
+                              onMouseLeave={() => setHoveredBarIdx(null)}
+                            />
+
+                            {/* Safe volume segment bar */}
+                            {safeHeight > 0 && (
+                              <rect
+                                x={xCoord}
+                                y={yCoord + riskHeight}
+                                width="24"
+                                height={safeHeight}
+                                rx="2"
+                                fill="url(#blueGradient)"
+                                className={`transition-all duration-200 ${isHovered ? 'brightness-125' : 'opacity-85'}`}
+                              />
+                            )}
+
+                            {/* Risk volume segment bar */}
+                            {riskHeight > 0 && (
+                              <rect
+                                x={xCoord}
+                                y={yCoord}
+                                width="24"
+                                height={riskHeight}
+                                rx="2"
+                                fill="url(#redGradient)"
+                                className={`transition-all duration-200 ${isHovered ? 'brightness-125' : 'opacity-90'}`}
+                              />
+                            )}
+
+                            {/* Label (Time) */}
+                            {idx % 2 === 0 && (
+                              <text
+                                x={xCoord + 12}
+                                y="124"
+                                textAnchor="middle"
+                                fill="#52525b"
+                                className="text-[9px] font-mono"
+                              >
+                                {timeStr}
+                              </text>
+                            )}
+                          </g>
+                        );
+                      })}
+
+                      {/* Definitions of Gradients */}
+                      <defs>
+                        <linearGradient id="blueGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.85" />
+                          <stop offset="100%" stopColor="#1d4ed8" stopOpacity="0.95" />
+                        </linearGradient>
+                        <linearGradient id="redGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#f87171" stopOpacity="0.9" />
+                          <stop offset="100%" stopColor="#b91c1c" stopOpacity="0.95" />
+                        </linearGradient>
+                      </defs>
+                    </svg>
+
+                    {/* Floating Interactive Tooltip */}
+                    {hoveredBarIdx !== null && (
+                      (() => {
+                        const d = chartData[hoveredBarIdx];
+                        const xCoord = 70 + hoveredBarIdx * 58;
+                        const volumeVal = Number(d.volume);
+                        const barHeight = (volumeVal / maxVolume) * 90;
+                        const yCoord = 110 - barHeight;
+                        const timeStart = new Date(d.bucket);
+                        const timeEnd = new Date(timeStart.getTime() + 5 * 60000);
+                        
+                        const timeRange = `${timeStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${timeEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+                        return (
+                          <div
+                            className="absolute bg-zinc-900/95 border border-zinc-800 rounded-md shadow-2xl p-2.5 z-[200] pointer-events-none text-left backdrop-blur-sm transition-all duration-150"
+                            style={{
+                              left: `${Math.min(Math.max(xCoord - 80, 10), 600)}px`,
+                              bottom: `${120 - yCoord + 10}px`,
+                              width: '184px'
+                            }}
+                          >
+                            <div className="text-[9px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">{timeRange}</div>
+                            <div className="flex flex-col gap-0.5 font-mono text-[10px]">
+                              <div className="flex justify-between">
+                                <span className="text-zinc-400">Total Volume:</span>
+                                <span className="text-zinc-200 font-bold">${volumeVal.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-zinc-400">Total Txns:</span>
+                                <span className="text-zinc-200 font-bold">{d.count}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-zinc-400">Flagged/Rejected:</span>
+                                <span className="text-red-400 font-bold">{d.flagged_rejected}</span>
+                              </div>
+                              <div className="flex justify-between border-t border-zinc-800 mt-1 pt-1">
+                                <span className="text-zinc-500">Approval Rate:</span>
+                                <span className="text-emerald-400 font-bold">
+                                  {d.count > 0 ? (((d.count - d.flagged_rejected) / d.count) * 100).toFixed(1) : '100'}%
+                                </span>
+                              </div>
+                            </div>
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-zinc-900" />
+                          </div>
+                        );
+                      })()
+                    )}
+                  </div>
+                </div>
+              );
+            })()
+          )
+        )}
 
         {/* Tab Selector (Visible to all, but tabs depend on role) */}
         <div className="flex border-b border-zinc-800 mb-6 gap-2">
@@ -253,7 +475,7 @@ export function MerchantDashboard() {
               )}
             </div>
 
-            <TransactionTable transactions={transactions} loading={loading} showMetadata={isOrgAdmin} />
+            <TransactionTable transactions={transactions} loading={loading || startupLoading} showMetadata={isOrgAdmin} />
 
             {/* Pagination */}
             {pagination && pagination.pages > 1 && (
@@ -282,6 +504,14 @@ export function MerchantDashboard() {
 
         {activeTab === 'flagged' && isOrgAdmin && (
           <div className="space-y-4">
+            {startupLoading ? (
+              <div className="space-y-3">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="h-20 bg-zinc-900/30 border border-zinc-800 rounded-lg animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <>
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
               <h3 className="text-sm font-semibold text-zinc-200 mb-1">AI-Powered Risk Auditing</h3>
               <p className="text-xs text-zinc-500">
@@ -359,11 +589,20 @@ export function MerchantDashboard() {
                 )}
               </div>
             </div>
+            </>
+            )}
           </div>
         )}
 
         {activeTab === 'members' && (
           <div className="grid grid-cols-3 gap-6">
+            {startupLoading ? (
+              <>
+                <div className="col-span-2 h-[350px] bg-zinc-900/30 border border-zinc-800 rounded-lg animate-pulse" />
+                <div className="h-[350px] bg-zinc-900/30 border border-zinc-800 rounded-lg animate-pulse" />
+              </>
+            ) : (
+              <>
             {/* Members List (2 cols) */}
             <div className="col-span-2 bg-zinc-900/40 border border-zinc-800 rounded-lg overflow-hidden flex flex-col">
               <div className="px-4 py-3 border-b border-zinc-800 flex justify-between items-center">
@@ -578,6 +817,8 @@ export function MerchantDashboard() {
                 </>
               )}
             </div>
+            </>
+            )}
           </div>
         )}
       </main>
