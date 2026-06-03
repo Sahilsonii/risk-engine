@@ -271,7 +271,7 @@ router.get('/transactions/:id/explain', async (req: Request, res: Response) => {
       - Mid-high range transactions over $5,000 have a 30% chance of being flagged.
       - Small transactions may also be flagged (8% chance) or rejected (3% chance) due to location/customer pattern anomalies.
       
-      Please write a professional, concise risk explanation (2-3 sentences) detailing the reason for the status, potential risks associated with the location or amount, and recommended audit actions.
+      Please write a professional, concise risk explanation (2-3 sentences) detailing the reason for the status, potential risks associated with the location or amount, and recommended audit actions. Do NOT use any Markdown formatting, bolding, italics, or list bullets. Output plain text only.
     `;
 
     // Fetch explanation from Gemini

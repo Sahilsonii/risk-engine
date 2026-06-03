@@ -75,6 +75,7 @@ export function Sidebar() {
                 organizationSwitcherPopoverActionButton: 'text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-colors',
                 organizationSwitcherPopoverActionButtonText: 'text-zinc-300 hover:text-zinc-100',
                 organizationSwitcherPopoverActionButtonIcon: 'text-zinc-400',
+                organizationSwitcherPopoverActionButton__manageOrganization: 'hidden',
                 organizationSwitcherPopoverFooter: 'bg-zinc-900 border-t border-zinc-800 text-zinc-500',
                 organizationSwitcherPopoverFooterAction: 'text-zinc-400 hover:text-zinc-200',
                 organizationSwitcherPopoverItem: 'text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-colors',

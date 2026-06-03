@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth, useOrganization, OrganizationProfile } from '@clerk/clerk-react';
+import { useAuth, useOrganization } from '@clerk/clerk-react';
 import { TransactionTable } from '../components/Tables/TransactionTable';
 import { KPICard } from '../components/KPIStrip/KPICard';
 import { Sidebar } from '../components/Layout/Sidebar';
@@ -8,8 +8,12 @@ import { api } from '../lib/api';
 import { Transaction, Stats, Pagination } from '../types';
 
 export function MerchantDashboard() {
-  const { getToken } = useAuth();
-  const { organization, membership } = useOrganization();
+  const { getToken, userId: currentUserId } = useAuth();
+  const { organization, membership, memberships, invitations } = useOrganization({
+    memberships: { pageSize: 50 },
+    invitations: { pageSize: 50 }
+  });
+  
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [stats,        setStats]        = useState<Stats | null>(null);
   const [pagination,   setPagination]   = useState<Pagination | null>(null);
@@ -22,6 +26,15 @@ export function MerchantDashboard() {
   const [activeTab, setActiveTab] = useState<'transactions' | 'flagged' | 'members'>('transactions');
   const [explainingId, setExplainingId] = useState<string | null>(null);
   const [explanations, setExplanations] = useState<Record<string, string>>({});
+
+  // Onboarding / Invite Form States
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<'org:member' | 'org:admin'>('org:member');
+  const [isInviting, setIsInviting] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -78,6 +91,72 @@ export function MerchantDashboard() {
     }
   };
 
+  // Invite member
+  const handleInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail || !organization) return;
+    
+    setIsInviting(true);
+    setInviteError(null);
+    setInviteSuccess(null);
+    
+    try {
+      await organization.inviteMember({ emailAddress: inviteEmail, role: inviteRole });
+      setInviteSuccess(`Invitation sent successfully to ${inviteEmail}!`);
+      setInviteEmail('');
+      invitations?.revalidate?.();
+    } catch (err: any) {
+      console.error(err);
+      setInviteError(err.errors?.[0]?.message || 'Failed to send invitation.');
+    } finally {
+      setIsInviting(false);
+    }
+  };
+
+  // Remove member
+  const handleRemoveMember = async (mem: any) => {
+    const displayName = [mem.publicUserData.firstName, mem.publicUserData.lastName].filter(Boolean).join(' ') || mem.publicUserData.identifier;
+    if (window.confirm(`Are you sure you want to remove ${displayName} from the organization?`)) {
+      setRemovingId(mem.id);
+      try {
+        await mem.destroy();
+        memberships?.revalidate?.();
+      } catch (err: any) {
+        alert(err.errors?.[0]?.message || 'Failed to remove member.');
+      } finally {
+        setRemovingId(null);
+      }
+    }
+  };
+
+  // Revoke invite
+  const handleRevokeInvite = async (invite: any) => {
+    if (window.confirm(`Are you sure you want to revoke the invitation for ${invite.emailAddress}?`)) {
+      setRevokingId(invite.id);
+      try {
+        await invite.revoke();
+        invitations?.revalidate?.();
+      } catch (err: any) {
+        alert(err.errors?.[0]?.message || 'Failed to revoke invitation.');
+      } finally {
+        setRevokingId(null);
+      }
+    }
+  };
+
+  // Leave organization
+  const handleLeaveOrganization = async () => {
+    if (!membership || !organization) return;
+    if (window.confirm(`Are you sure you want to leave ${organization.name}? You will lose access to all its transactions.`)) {
+      try {
+        await membership.destroy();
+        window.location.reload();
+      } catch (err: any) {
+        alert(err.errors?.[0]?.message || 'Failed to leave organization.');
+      }
+    }
+  };
+
   return (
     <div
       id="merchant-dashboard"
@@ -126,19 +205,19 @@ export function MerchantDashboard() {
           />
         </div>
 
-        {/* Tab Selector (Only visible to Org Admins) */}
-        {isOrgAdmin && (
-          <div className="flex border-b border-zinc-800 mb-6 gap-2">
-            <button
-              onClick={() => setActiveTab('transactions')}
-              className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-all ${
-                activeTab === 'transactions'
-                  ? 'border-blue-500 text-blue-400'
-                  : 'border-transparent text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              Transaction History
-            </button>
+        {/* Tab Selector (Visible to all, but tabs depend on role) */}
+        <div className="flex border-b border-zinc-800 mb-6 gap-2">
+          <button
+            onClick={() => { setActiveTab('transactions'); setPage(1); }}
+            className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-all ${
+              activeTab === 'transactions'
+                ? 'border-blue-500 text-blue-400'
+                : 'border-transparent text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            Transaction History
+          </button>
+          {isOrgAdmin && (
             <button
               onClick={() => setActiveTab('flagged')}
               className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-all ${
@@ -149,18 +228,18 @@ export function MerchantDashboard() {
             >
               Flagged & Rejected Audit
             </button>
-            <button
-              onClick={() => setActiveTab('members')}
-              className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-all ${
-                activeTab === 'members'
-                  ? 'border-blue-500 text-blue-400'
-                  : 'border-transparent text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              Members & Settings
-            </button>
-          </div>
-        )}
+          )}
+          <button
+            onClick={() => setActiveTab('members')}
+            className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-all ${
+              activeTab === 'members'
+                ? 'border-blue-500 text-blue-400'
+                : 'border-transparent text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            {isOrgAdmin ? 'Members & Settings' : 'Organization Members'}
+          </button>
+        </div>
 
         {/* Main Content Area based on Selected Tab */}
         {activeTab === 'transactions' && (
@@ -246,12 +325,14 @@ export function MerchantDashboard() {
                         {/* Gemini AI explanation card */}
                         <div className="mt-1">
                           {explanations[txn.id] ? (
-                            <div className="bg-zinc-850 border border-zinc-800 rounded-lg p-3 text-xs text-zinc-300 flex flex-col gap-1.5">
+                            <div className="bg-zinc-900/80 border border-zinc-800 rounded-lg p-4 flex flex-col gap-2">
                               <div className="flex items-center gap-1.5 text-[10px] font-bold text-blue-400 uppercase tracking-widest">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
                                 AI Risk Audit Summary
                               </div>
-                              <p className="leading-relaxed italic font-medium">"{explanations[txn.id]}"</p>
+                              <p className="text-xs text-zinc-300 font-sans font-normal leading-relaxed">
+                                {explanations[txn.id].replace(/[\*_"]/g, '')}
+                              </p>
                             </div>
                           ) : (
                             <button
@@ -281,37 +362,222 @@ export function MerchantDashboard() {
           </div>
         )}
 
-        {activeTab === 'members' && isOrgAdmin && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 flex justify-center">
-            <OrganizationProfile 
-              appearance={{
-                elements: {
-                  card: 'bg-zinc-900 border border-zinc-800 shadow-none p-0 w-full max-w-4xl',
-                  navbar: 'border-r border-zinc-800 text-zinc-300 pr-4',
-                  navbarLink: 'text-zinc-400 hover:text-zinc-100 text-xs py-2 px-3 rounded-md hover:bg-zinc-800/40',
-                  navbarLinkActive: 'text-blue-400 bg-blue-500/10 font-medium',
-                  headerTitle: 'text-zinc-100 text-lg font-semibold',
-                  headerSubtitle: 'text-zinc-500 text-xs',
-                  profileSectionTitle: 'text-zinc-300 border-b border-zinc-800 pb-2 text-xs font-semibold uppercase tracking-wider',
-                  profileSectionContent: 'text-zinc-100',
-                  userActiveContainer: 'bg-zinc-800/50 rounded-lg p-3',
-                  breadcrumbsItem: 'text-zinc-400 text-xs',
-                  breadcrumbsItemActive: 'text-zinc-100 text-xs font-medium',
-                  organizationProfilePage: 'text-zinc-100 bg-zinc-900 p-6',
-                  formFieldLabel: 'text-zinc-400 text-xs',
-                  formFieldInput: 'bg-zinc-800 border-zinc-700 text-zinc-100 focus:border-blue-500 text-xs rounded-md',
-                  formButtonPrimary: 'bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors',
-                  membersPage: 'bg-zinc-900 text-zinc-100',
-                  membersTable: 'text-zinc-100 text-xs',
-                  membersTableHeader: 'text-zinc-500 border-b border-zinc-800 font-medium pb-2 uppercase tracking-wider text-[10px]',
-                  membersTableRow: 'border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors',
-                  membersTableCell: 'text-zinc-300 py-3',
-                  membersTableActionMenuButton: 'text-zinc-400 hover:text-zinc-100',
-                  memberRoleSelectTrigger: 'bg-zinc-800 border border-zinc-700 text-zinc-300 rounded px-2.5 py-1 text-xs focus:outline-none focus:border-blue-500',
-                  invitedMembersPage: 'bg-zinc-900 text-zinc-100',
-                }
-              }}
-            />
+        {activeTab === 'members' && (
+          <div className="grid grid-cols-3 gap-6">
+            {/* Members List (2 cols) */}
+            <div className="col-span-2 bg-zinc-900/40 border border-zinc-800 rounded-lg overflow-hidden flex flex-col">
+              <div className="px-4 py-3 border-b border-zinc-800 flex justify-between items-center">
+                <h2 className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Organization Members</h2>
+                <span className="text-xs text-zinc-600 font-mono">
+                  {memberships?.data?.length || 0} active
+                </span>
+              </div>
+              
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead>
+                    <tr className="border-b border-zinc-800 text-zinc-500 uppercase tracking-wider text-[10px] font-medium">
+                      <th className="px-4 py-3">Member</th>
+                      <th className="px-4 py-3">Role</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/50">
+                    {!memberships?.data ? (
+                      <tr>
+                        <td colSpan={3} className="px-4 py-8 text-center text-zinc-500 font-mono">
+                          Loading members...
+                        </td>
+                      </tr>
+                    ) : (
+                      memberships.data.map((mem: any) => {
+                        const isSelf = mem.publicUserData.userId === currentUserId;
+                        const displayName = [mem.publicUserData.firstName, mem.publicUserData.lastName].filter(Boolean).join(' ') || mem.publicUserData.identifier;
+                        const roleDisplay = mem.role === 'org:admin' || mem.role === 'admin' ? 'Administrator' : 'Member';
+                        
+                        return (
+                          <tr key={mem.id} className="hover:bg-zinc-800/20 transition-colors">
+                            <td className="px-4 py-3 flex items-center gap-3">
+                              <img 
+                                src={mem.publicUserData.imageUrl} 
+                                alt="" 
+                                className="w-6 h-6 rounded-full border border-zinc-800"
+                              />
+                              <div className="flex flex-col">
+                                <span className="text-zinc-200 font-medium">{displayName}</span>
+                                <span className="text-[10px] text-zinc-500 font-mono">{mem.publicUserData.identifier}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-zinc-300">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                                roleDisplay === 'Administrator' 
+                                  ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' 
+                                  : 'bg-zinc-800 text-zinc-400 border border-zinc-700/50'
+                              }`}>
+                                {roleDisplay}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {isSelf ? (
+                                <span className="text-[10px] text-zinc-600 italic px-2">Current User</span>
+                              ) : isOrgAdmin ? (
+                                <button
+                                  onClick={() => handleRemoveMember(mem)}
+                                  disabled={removingId === mem.id}
+                                  className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 text-red-400 rounded text-[10px] font-semibold transition-colors disabled:opacity-50"
+                                >
+                                  {removingId === mem.id ? 'Removing...' : 'Remove'}
+                                </button>
+                              ) : (
+                                <span className="text-zinc-600">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Right column: Invite Form (for Admin) or Org Details (for Member) */}
+            <div className="flex flex-col gap-6">
+              {isOrgAdmin ? (
+                <>
+                  {/* Invite Form */}
+                  <div className="bg-zinc-900/40 border border-zinc-800 rounded-lg p-4 flex flex-col gap-4">
+                    <div>
+                      <h3 className="text-xs font-semibold text-zinc-200 uppercase tracking-wider mb-1">Invite New Member</h3>
+                      <p className="text-[11px] text-zinc-500">Send an invitation email to join this organization.</p>
+                    </div>
+                    
+                    <form onSubmit={handleInvite} className="flex flex-col gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] uppercase font-bold text-zinc-500">Email Address</label>
+                        <input
+                          type="email"
+                          required
+                          placeholder="email@example.com"
+                          value={inviteEmail}
+                          onChange={e => setInviteEmail(e.target.value)}
+                          className="bg-zinc-850 border border-zinc-800 rounded px-3 py-2 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors"
+                        />
+                      </div>
+                      
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] uppercase font-bold text-zinc-500">Role</label>
+                        <select
+                          value={inviteRole}
+                          onChange={e => setInviteRole(e.target.value as any)}
+                          className="bg-zinc-850 border border-zinc-800 rounded px-2.5 py-2 text-xs text-zinc-300 focus:outline-none focus:border-blue-500 transition-colors"
+                        >
+                          <option value="org:member">Member</option>
+                          <option value="org:admin">Administrator</option>
+                        </select>
+                      </div>
+                      
+                      {inviteError && (
+                        <div className="text-[11px] text-red-400 bg-red-500/5 border border-red-500/10 rounded p-2 font-medium">
+                          {inviteError}
+                        </div>
+                      )}
+                      {inviteSuccess && (
+                        <div className="text-[11px] text-emerald-400 bg-emerald-500/5 border border-emerald-500/10 rounded p-2 font-medium">
+                          {inviteSuccess}
+                        </div>
+                      )}
+                      
+                      <button
+                        type="submit"
+                        disabled={isInviting}
+                        className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition-colors disabled:opacity-50"
+                      >
+                        {isInviting ? 'Sending...' : 'Send Invitation'}
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Pending Invitations list */}
+                  <div className="bg-zinc-900/40 border border-zinc-800 rounded-lg p-4 flex flex-col gap-3">
+                    <h3 className="text-xs font-semibold text-zinc-200 uppercase tracking-wider">Pending Invitations</h3>
+                    
+                    <div className="divide-y divide-zinc-800/60 max-h-60 overflow-y-auto">
+                      {!invitations?.data ? (
+                        <div className="text-center text-zinc-600 text-[11px] py-4">Loading invites...</div>
+                      ) : invitations.data.length === 0 ? (
+                        <div className="text-center text-zinc-600 text-[11px] py-4">No pending invitations.</div>
+                      ) : (
+                        invitations.data.map((inv: any) => (
+                          <div key={inv.id} className="py-2.5 flex items-center justify-between gap-2 text-[11px]">
+                            <div className="flex flex-col gap-0.5 truncate">
+                              <span className="text-zinc-300 truncate font-medium">{inv.emailAddress}</span>
+                              <span className="text-[9px] text-zinc-500 uppercase tracking-wider font-semibold">
+                                {inv.role === 'org:admin' || inv.role === 'admin' ? 'Admin' : 'Member'}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => handleRevokeInvite(inv)}
+                              disabled={revokingId === inv.id}
+                              className="text-red-400 hover:text-red-300 font-semibold disabled:opacity-50"
+                            >
+                              Revoke
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Organization Profile Details */}
+                  <div className="bg-zinc-900/40 border border-zinc-800 rounded-lg p-5 flex flex-col gap-4">
+                    <div>
+                      <h3 className="text-xs font-semibold text-zinc-200 uppercase tracking-wider mb-1">Organization Profile</h3>
+                      <p className="text-[11px] text-zinc-500">Details of your active organization.</p>
+                    </div>
+                    
+                    <div className="flex items-center gap-3 bg-zinc-950 p-3 rounded-lg border border-zinc-800/80">
+                      {organization?.imageUrl ? (
+                        <img src={organization.imageUrl} alt="" className="w-10 h-10 rounded-lg border border-zinc-800" />
+                      ) : (
+                        <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">
+                          {organization?.name?.[0] || 'O'}
+                        </div>
+                      )}
+                      <div className="flex flex-col truncate">
+                        <span className="text-xs font-semibold text-zinc-200 truncate">{organization?.name || 'OLD ERA AI'}</span>
+                        <span className="text-[9px] text-zinc-500 font-mono truncate">ID: {organization?.id}</span>
+                      </div>
+                    </div>
+
+                    <div className="text-[11px] text-zinc-400 bg-blue-500/5 border border-blue-500/10 rounded-lg p-3 leading-relaxed">
+                      <div className="font-semibold text-blue-400 mb-1 flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                        Member Access
+                      </div>
+                      You are signed in as a Member of this organization. You can view all transactions and team members, but cannot modify settings or invite new users.
+                    </div>
+                  </div>
+
+                  {/* Leave Organization Card */}
+                  <div className="bg-zinc-900/40 border border-zinc-800 rounded-lg p-5 flex flex-col gap-3">
+                    <h3 className="text-xs font-semibold text-zinc-200 uppercase tracking-wider">Leave Organization</h3>
+                    <p className="text-[11px] text-zinc-500 leading-relaxed">
+                      Leaving will revoke your access to this organization's transactions and dashboard.
+                    </p>
+                    
+                    <button
+                      onClick={handleLeaveOrganization}
+                      className="mt-2 w-full py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 text-red-400 rounded text-xs font-semibold transition-colors"
+                    >
+                      Leave Organization
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         )}
       </main>
