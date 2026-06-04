@@ -1,5 +1,5 @@
 import { TransactionStatus } from '../../types';
-import { CheckCircle, AlertTriangle, XCircle, Clock } from 'lucide-react';
+import { CheckCircle, AlertTriangle, XCircle, Clock, ShieldAlert } from 'lucide-react';
 import clsx from 'clsx';
 
 const config: Record<TransactionStatus, {
@@ -21,6 +21,11 @@ const config: Record<TransactionStatus, {
     label: 'Flagged',
     icon:  <AlertTriangle size={11} />,
     cls:   'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  },
+  [TransactionStatus.SUSPICIOUS]: {
+    label: 'Suspicious',
+    icon:  <ShieldAlert size={11} />,
+    cls:   'bg-pink-500/10 text-pink-400 border-pink-500/20',
   },
   [TransactionStatus.PENDING]: {
     label: 'Pending',

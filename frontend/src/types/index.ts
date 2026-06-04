@@ -3,6 +3,7 @@ export enum TransactionStatus {
   APPROVED = 'APPROVED',
   FLAGGED  = 'FLAGGED',
   REJECTED = 'REJECTED',
+  SUSPICIOUS = 'SUSPICIOUS',
 }
 
 export interface Transaction {
@@ -14,6 +15,9 @@ export interface Transaction {
   customer_name?: string;
   location?: string;
   merchant_name?: string;
+  review_notes?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
 }
 
 export interface ChartBucket {
@@ -66,4 +70,29 @@ export interface Pagination {
 export interface TransactionsResponse {
   data:       Transaction[];
   pagination: Pagination;
+}
+
+export interface ReportData {
+  transactions: Transaction[];
+  stats: {
+    total: number;
+    approved: number;
+    rejected: number;
+    flagged: number;
+    suspicious: number;
+    pending: number;
+    total_volume: number;
+    avg_amount: number;
+    approval_rate: number;
+    rejection_rate: number;
+  };
+  ai_report: {
+    executive_summary: string;
+    risk_analysis: string;
+    recommendations: string;
+  };
+  period: {
+    start: string;
+    end: string;
+  };
 }

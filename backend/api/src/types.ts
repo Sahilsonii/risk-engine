@@ -3,6 +3,7 @@ export enum TransactionStatus {
   APPROVED = 'APPROVED',
   FLAGGED  = 'FLAGGED',
   REJECTED = 'REJECTED',
+  SUSPICIOUS = 'SUSPICIOUS',
 }
 
 export interface Transaction {
@@ -14,6 +15,9 @@ export interface Transaction {
   customer_name?: string;
   location?: string;
   merchant_name?: string;
+  review_notes?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
 }
 
 export interface QueueJob {

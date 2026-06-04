@@ -39,4 +39,37 @@ export const api = {
 
   getNews: (token: string) =>
     fetchWithAuth<{ articles: any[] }>('/api/news', token),
+
+  reviewTransaction: async (
+    token: string,
+    id: string,
+    payload: { status: string; review_notes: string }
+  ) => {
+    const res = await fetch(`${API_BASE}/api/transactions/${id}/review`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  getReport: async (token: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/api/transactions/report`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return res.blob();
+  },
 };

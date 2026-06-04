@@ -8,7 +8,7 @@ CREATE ROLE app_admin NOLOGIN;
 
 -- Status enum
 CREATE TYPE transaction_status AS ENUM
-  ('PENDING', 'APPROVED', 'FLAGGED', 'REJECTED');
+  ('PENDING', 'APPROVED', 'FLAGGED', 'REJECTED', 'SUSPICIOUS');
 
 -- Core table
 CREATE TABLE transactions (
@@ -19,7 +19,10 @@ CREATE TABLE transactions (
   created_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   customer_name VARCHAR(100),
   location      VARCHAR(150),
-  merchant_name VARCHAR(100)
+  merchant_name VARCHAR(100),
+  review_notes  TEXT,
+  reviewed_by   VARCHAR(100),
+  reviewed_at   TIMESTAMPTZ
 );
 
 -- Indexes for performance

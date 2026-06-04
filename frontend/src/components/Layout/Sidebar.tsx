@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   LogOut,
   Activity,
+  UserCircle,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -34,6 +35,20 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-2 py-4 space-y-1">
+        <NavLink
+          to="/profile"
+          className={({ isActive }) =>
+            clsx(
+              'flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium transition-colors',
+              isActive
+                ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold'
+                : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/50'
+            )
+          }
+        >
+          <UserCircle size={14} />
+          My Profile
+        </NavLink>
         <NavLink
           to="/dashboard"
           className={({ isActive }) =>

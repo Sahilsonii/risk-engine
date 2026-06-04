@@ -9,6 +9,7 @@ import {
 } from '@clerk/clerk-react';
 import { MerchantDashboard } from './pages/MerchantDashboard';
 import { AdminDashboard }    from './pages/AdminDashboard';
+import { ProfilePage }       from './pages/ProfilePage';
 import { Login }             from './pages/Login';
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -67,6 +68,19 @@ export default function App() {
           <Route
             path="/sign-in/*"
             element={<Login />}
+          />
+          <Route
+            path="/profile"
+            element={
+              <>
+                <SignedIn>
+                  <ProfilePage />
+                </SignedIn>
+                <SignedOut>
+                  <RedirectToSignIn />
+                </SignedOut>
+              </>
+            }
           />
           <Route
             path="/dashboard"
