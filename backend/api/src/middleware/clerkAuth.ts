@@ -54,7 +54,7 @@ export async function clerkAuthMiddleware(
     // Extract active organisation from the JWT
     // Clerk stores active org in `org_id` claim, or under `o.id` in the default token structure
     const orgId = (payload.org_id || payload.o?.id) as string | undefined;
-    const orgSlug = (payload.org_slug || payload.o?.slg) as string | undefined;
+    let orgSlug = (payload.org_slug || payload.o?.slg) as string | undefined;
 
     if (!orgId) {
       logger.warn({ userId: payload.sub, path: req.path }, 'Auth failure: no active organisation in JWT');
@@ -67,8 +67,34 @@ export async function clerkAuthMiddleware(
     let dbRole: 'app_user' | 'app_admin';
     let tenantId: string;
 
-    const userRole = (payload.org_role || payload.o?.r) as string | undefined;
-    const isAdmin = userRole === 'org:admin' || userRole === 'admin';
+    let userRole = (payload.org_role || payload.o?.r) as string | undefined;
+
+    // Fallback: If role is not in the JWT payload, fetch it dynamically from Clerk's Backend SDK
+    if (!userRole && orgId) {
+      try {
+        const memberships = await clerk.users.getOrganizationMembershipList({
+          userId: payload.sub,
+        });
+        const currentMembership = memberships.data.find(m => m.organization.id === orgId);
+        if (currentMembership) {
+          userRole = currentMembership.role;
+          if (!orgSlug && currentMembership.organization.slug) {
+            orgSlug = currentMembership.organization.slug;
+          }
+          logger.debug(
+            { userId: payload.sub, orgId, userRole, orgSlug },
+            'Fetched user role and slug dynamically from Clerk API'
+          );
+        }
+      } catch (err) {
+        logger.error(
+          { err, userId: payload.sub, orgId },
+          'Failed to fetch organization membership list from Clerk API'
+        );
+      }
+    }
+
+    const isAdmin = userRole === 'org:admin' || userRole === 'admin' || orgId === ADMIN_ORG_ID;
 
     if (isAdmin) {
       dbRole   = 'app_admin';

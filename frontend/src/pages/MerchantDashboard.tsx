@@ -56,6 +56,9 @@ export function MerchantDashboard() {
   const [reviewStatus, setReviewStatus] = useState<Record<string, string>>({});
   const [submittingReviewId, setSubmittingReviewId] = useState<string | null>(null);
   const [reviewMessages, setReviewMessages] = useState<Record<string, { type: 'success' | 'error' | 'warning'; text: string }>>({});
+  // Global toast for review actions (shown at top of Flagged tab)
+  const [reviewToast, setReviewToast] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
+  const reviewToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Report Download State
   const [downloadingReport, setDownloadingReport] = useState(false);
@@ -78,15 +81,16 @@ export function MerchantDashboard() {
     }
   }, [activeTab]);
 
-  const fetchNews = useCallback(async () => {
-    if (lastNewsFetch && Date.now() - lastNewsFetch.getTime() < 5 * 60 * 1000) {
+  const fetchNews = useCallback(async (forceRefresh = false) => {
+    // Skip if last fetch was <90 sec ago unless force-refreshed
+    if (!forceRefresh && lastNewsFetch && Date.now() - lastNewsFetch.getTime() < 90 * 1000) {
       return;
     }
     setNewsLoading(true);
     try {
       const token = await getToken();
       if (!token) return;
-      const res = await api.getNews(token);
+      const res = await api.getNews(token, forceRefresh);
       setNews(res.articles);
       setLastNewsFetch(new Date());
     } catch (err) {
@@ -180,18 +184,36 @@ export function MerchantDashboard() {
       const token = await getToken();
       if (!token) return;
       const result = await api.reviewTransaction(token, txnId, { status, review_notes: notes });
-      
+
+      const shortId = txnId.substring(0, 8);
+
       if (result.overridden) {
-        setReviewMessages(prev => ({ ...prev, [txnId]: { type: 'warning', text: result.message } }));
+        // Member tried to approve/reject — backend overrode to FLAGGED
+        const toastMsg = `Transaction ${shortId}… status kept as FLAGGED — only admins can approve or reject. Your notes were saved.`;
+        setReviewToast({ type: 'warning', text: toastMsg });
+        // Clear per-txn error
+        setReviewMessages(prev => { const n = { ...prev }; delete n[txnId]; return n; });
       } else {
-        setReviewMessages(prev => ({ ...prev, [txnId]: { type: 'success', text: result.message } }));
+        // Successful admin status change
+        const newStatus = result.transaction?.status || status;
+        const toastMsg = `✓ Transaction ${shortId}… status changed to ${newStatus}.`;
+        setReviewToast({ type: 'success', text: toastMsg });
+        // Optimistically update local transaction status so badge updates immediately
+        setTransactions(prev => prev.map((t: any) => t.id === txnId ? { ...t, status: newStatus, review_notes: notes, reviewed_by: result.transaction?.reviewed_by } : t));
+        // Clear per-txn messages
+        setReviewMessages(prev => { const n = { ...prev }; delete n[txnId]; return n; });
+        // Close the review panel
+        setExpandedReviewId(null);
       }
-      
-      // Refresh data
+
+      // Auto-dismiss toast after 6s
+      if (reviewToastTimerRef.current) clearTimeout(reviewToastTimerRef.current);
+      reviewToastTimerRef.current = setTimeout(() => setReviewToast(null), 6000);
+
+      // Refresh data from server in background
       fetchData();
-      setExpandedReviewId(null);
     } catch (err: any) {
-      setReviewMessages(prev => ({ ...prev, [txnId]: { type: 'error', text: err.message || 'Failed to submit review.' } }));
+      setReviewMessages(prev => ({ ...prev, [txnId]: { type: 'error', text: err.message || 'Failed to submit review. Please try again.' } }));
     } finally {
       setSubmittingReviewId(null);
     }
@@ -286,8 +308,28 @@ export function MerchantDashboard() {
     }
   };
 
+  // Delete organization
+  const handleDeleteOrganization = async () => {
+    if (!organization) return;
+    const confirm1 = window.confirm(`WARNING: Are you sure you want to permanently delete ${organization.name}? This will delete all transactions, members, and organization settings. This action is irreversible.`);
+    if (confirm1) {
+      const confirm2 = window.confirm(`Are you absolutely sure? Click OK to confirm permanent deletion of the organization.`);
+      if (confirm2) {
+        try {
+          const token = await getToken();
+          if (!token) return;
+          await api.deleteOrganization(token, organization.id);
+          alert('Organization deleted successfully.');
+          window.location.reload();
+        } catch (err: any) {
+          alert(err.message || 'Failed to delete organization.');
+        }
+      }
+    }
+  };
+
   // Get all flagged/rejected/suspicious transactions
-  const flaggedTransactions = transactions.filter((t: any) => t.status === 'FLAGGED' || t.status === 'REJECTED' || t.status === 'SUSPICIOUS');
+  const flaggedTransactions = transactions.filter((t: any) => t.status === 'FLAGGED' || t.status === 'REJECTED' || t.status === 'SUSPICIOUS' || t.id === expandedReviewId);
 
   // Status options based on role
   const getStatusOptions = (currentStatus: string) => {
@@ -978,6 +1020,32 @@ export function MerchantDashboard() {
         {/* ═══════════════════════ TAB: FLAGGED & REJECTED AUDIT ═══════════════════════ */}
         {activeTab === 'flagged' && (
           <div key={tabKey} className="space-y-4">
+            {/* Global Review Toast Banner */}
+            {reviewToast && (
+              <div className={`flex items-start justify-between gap-3 px-4 py-3 rounded-lg border text-xs font-medium ${
+                reviewToast.type === 'success'
+                  ? 'bg-emerald-500/8 border-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                  : reviewToast.type === 'warning'
+                  ? 'bg-amber-500/8 border-amber-500/20 text-amber-700 dark:text-amber-400'
+                  : 'bg-red-500/8 border-red-500/10 text-red-600 dark:text-red-400'
+              }`}>
+                <div className="flex items-center gap-2">
+                  {reviewToast.type === 'success' && (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>
+                  )}
+                  {reviewToast.type === 'warning' && (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                  )}
+                  {reviewToast.type === 'error' && (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
+                  )}
+                  <span>{reviewToast.text}</span>
+                </div>
+                <button onClick={() => setReviewToast(null)} className="shrink-0 opacity-60 hover:opacity-100 transition-opacity">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+              </div>
+            )}
             {startupLoading ? (
               <div className="space-y-3">
                 {[...Array(3)].map((_, i) => (
@@ -1175,7 +1243,7 @@ export function MerchantDashboard() {
                 </p>
               </div>
               <button
-                onClick={fetchNews}
+                onClick={() => fetchNews(true)}
                 disabled={newsLoading}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-all font-semibold disabled:opacity-50"
               >
@@ -1200,7 +1268,7 @@ export function MerchantDashboard() {
               <div className="bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg p-12 text-center flex flex-col items-center justify-center gap-3">
                 <span className="text-xs text-zinc-500">No recent articles found. Try fetching new content.</span>
                 <button
-                  onClick={fetchNews}
+                  onClick={() => fetchNews(true)}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-xs font-semibold transition-colors"
                 >
                   Retrieve Feed
@@ -1424,6 +1492,29 @@ export function MerchantDashboard() {
                               </div>
                             ))
                           )}
+                        </div>
+                      </div>
+
+                      {/* Danger Zone card for admins */}
+                      <div className="bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg p-5 flex flex-col gap-3">
+                        <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider">Danger Zone</h3>
+                        <p className="text-[11px] text-zinc-400 dark:text-zinc-500 leading-relaxed">
+                          As an administrator, you can choose to leave the organization or delete it permanently.
+                        </p>
+                        
+                        <div className="flex flex-col gap-2 mt-1">
+                          <button
+                            onClick={handleLeaveOrganization}
+                            className="w-full py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 hover:border-amber-500/40 text-amber-600 dark:text-amber-400 rounded text-xs font-semibold transition-colors"
+                          >
+                            Leave Organization
+                          </button>
+                          <button
+                            onClick={handleDeleteOrganization}
+                            className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 text-red-500 dark:text-red-400 rounded text-xs font-semibold transition-colors"
+                          >
+                            Delete Organization
+                          </button>
                         </div>
                       </div>
                     </>

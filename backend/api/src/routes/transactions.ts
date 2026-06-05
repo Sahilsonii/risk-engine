@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { createClerkClient } from '@clerk/backend';
 import { getPool } from '../db/pool';
 import { getRedisClient } from '../redis/client';
 import logger from '../logger';
@@ -768,70 +769,103 @@ router.get('/transactions/report', async (req: Request, res: Response) => {
 /**
  * GET /api/news
  * Returns real-time financial news regarding transactions, money, and banking.
- * Cached in Redis for 5 minutes.
+ * Cached in Redis for 90 seconds. Supports ?refresh=1 to force re-fetch.
  */
-router.get('/news', async (req: Request, res: Response) => {
-  const redis = await getRedisClient();
-  const cacheKey = 'api:news:list';
 
+/** Strip CDATA wrappers and decode XML entities */
+function parseXmlText(raw: string): string {
+  return raw
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+    .trim();
+}
+
+/** Try fetching an RSS feed and return parsed articles or null */
+async function fetchRssFeed(url: string, sourceName: string): Promise<any[] | null> {
   try {
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      res.json(JSON.parse(cached));
-      return;
-    }
-
-    const rssUrl = 'https://finance.yahoo.com/news/rssindex';
-    const response = await fetch(rssUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)' },
+      signal: AbortSignal.timeout(8000),
     });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch Yahoo Finance RSS: HTTP ${response.status}`);
-    }
-
-    const xml = await response.text();
+    if (!resp.ok) return null;
+    const xml = await resp.text();
 
     const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-    const titleRegex = /<title>([\s\S]*?)<\/title>/;
-    const linkRegex = /<link>([\s\S]*?)<\/link>/;
-    const pubDateRegex = /<pubDate>([\s\S]*?)<\/pubDate>/;
-    const descRegex = /<description>([\s\S]*?)<\/description>/;
-    const sourceRegex = /<source[^>]*>([\s\S]*?)<\/source>/;
-
     const articles: any[] = [];
-    let match;
+    let match: RegExpExecArray | null;
     let count = 0;
 
-    while ((match = itemRegex.exec(xml)) !== null && count < 10) {
-      const itemContent = match[1];
+    while ((match = itemRegex.exec(xml)) !== null && count < 12) {
+      const item = match[1];
+      const title = item.match(/<title>([\s\S]*?)<\/title>/)?.[1];
+      const link  = item.match(/<link>([\s\S]*?)<\/link>/)?.[1]
+                 || item.match(/<guid[^>]*>([\s\S]*?)<\/guid>/)?.[1];
+      const pubDate = item.match(/<pubDate>([\s\S]*?)<\/pubDate>/)?.[1]
+                   || item.match(/<dc:date>([\s\S]*?)<\/dc:date>/)?.[1];
+      const desc   = item.match(/<description>([\s\S]*?)<\/description>/)?.[1];
+      const src    = item.match(/<source[^>]*>([\s\S]*?)<\/source>/)?.[1];
 
-      const titleMatch = itemContent.match(titleRegex);
-      const linkMatch = itemContent.match(linkRegex);
-      const pubDateMatch = itemContent.match(pubDateRegex);
-      const descMatch = itemContent.match(descRegex);
-      const sourceMatch = itemContent.match(sourceRegex);
-
-      if (titleMatch && linkMatch) {
+      if (title && link) {
         articles.push({
-          title: cleanXml(titleMatch[1]),
-          link: cleanXml(linkMatch[1]),
-          pubDate: pubDateMatch ? cleanXml(pubDateMatch[1]) : new Date().toUTCString(),
-          description: descMatch ? cleanXml(descMatch[1]) : 'No description available.',
-          source: sourceMatch ? cleanXml(sourceMatch[1]) : 'Yahoo Finance'
+          title: parseXmlText(title),
+          link: parseXmlText(link),
+          pubDate: pubDate ? parseXmlText(pubDate) : new Date().toUTCString(),
+          description: desc ? parseXmlText(desc).substring(0, 220) : 'No description available.',
+          source: src ? parseXmlText(src) : sourceName,
         });
         count++;
       }
     }
+    return articles.length > 0 ? articles : null;
+  } catch {
+    return null;
+  }
+}
 
-    if (articles.length === 0) {
-      throw new Error('No articles parsed from RSS feed');
+router.get('/news', async (req: Request, res: Response) => {
+  const redis = await getRedisClient();
+  const cacheKey = 'api:news:list';
+  const forceRefresh = req.query.refresh === '1';
+
+  try {
+    if (!forceRefresh) {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        res.json(JSON.parse(cached));
+        return;
+      }
+    } else {
+      await redis.del(cacheKey);
     }
 
-    const payload = { articles };
-    await redis.setEx(cacheKey, 300, JSON.stringify(payload));
+    // Multi-source RSS cascade — first successful source wins
+    const sources: Array<[string, string]> = [
+      ['https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines', 'MarketWatch'],
+      ['https://feeds.bbci.co.uk/news/business/rss.xml',                    'BBC Business'],
+      ['https://finance.yahoo.com/news/rssindex',                           'Yahoo Finance'],
+      ['https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best', 'Reuters'],
+    ];
+
+    let articles: any[] | null = null;
+    for (const [url, name] of sources) {
+      articles = await fetchRssFeed(url, name);
+      if (articles && articles.length > 0) {
+        logger.info({ source: name, count: articles.length }, 'News fetched from RSS');
+        break;
+      }
+    }
+
+    if (!articles || articles.length === 0) {
+      throw new Error('All RSS sources failed or returned no articles');
+    }
+
+    const payload = { articles, fetchedAt: new Date().toISOString() };
+    await redis.setEx(cacheKey, 90, JSON.stringify(payload));   // 90-second cache
     res.json(payload);
   } catch (err) {
     logger.warn({ err }, 'Error fetching live news. Serving fallback transaction security news.');
@@ -885,5 +919,40 @@ function cleanXml(str: string): string {
     .replace(/&apos;/g, "'")
     .trim();
 }
+
+const clerk = createClerkClient({
+  secretKey: process.env.CLERK_SECRET_KEY!,
+});
+
+/**
+ * DELETE /api/organizations/:id
+ * Delete an organization from Clerk. Only admins of the organization can perform this action.
+ */
+router.delete('/organizations/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { dbRole, orgId } = req.auth;
+
+  // Security checks:
+  // 1. Must be an admin of the active organization (dbRole === 'app_admin')
+  // 2. The active organization ID must match the ID being deleted
+  if (dbRole !== 'app_admin' || orgId !== id) {
+    logger.warn(
+      { userId: req.auth.userId, targetOrgId: id, activeOrgId: orgId, dbRole },
+      'Unauthorized attempt to delete organization'
+    );
+    res.status(403).json({ error: 'Forbidden: only organization administrators can delete this organization' });
+    return;
+  }
+
+  try {
+    logger.info({ targetOrgId: id, userId: req.auth.userId }, 'Attempting to delete organization from Clerk');
+    await clerk.organizations.deleteOrganization(id);
+    logger.info({ targetOrgId: id }, 'Organization deleted successfully');
+    res.json({ success: true, message: 'Organization deleted successfully' });
+  } catch (err) {
+    logger.error({ err, targetOrgId: id }, 'Failed to delete organization from Clerk');
+    res.status(500).json({ error: 'Failed to delete organization' });
+  }
+});
 
 export default router;

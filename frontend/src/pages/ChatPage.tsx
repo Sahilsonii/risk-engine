@@ -12,6 +12,25 @@ interface Message {
 }
 
 const SUGGESTED_PROMPTS = [
+  // Simon Mathias achievements
+  'Who is Simon Mathias and what are his achievements?',
+  'How did Simon Mathias grow a £2,000 investment into a £20,000,000+ enterprise?',
+  'Tell me about Simon Mathias\'s ventures across Energy, Property, and AI.',
+
+  // Chris Drinkwater milestones & achievements
+  'What is Chris Drinkwater\'s professional background and role?',
+  'What did Chris Drinkwater achieve during Gameblast 2024 for SpecialEffect?',
+  'What was Chris Drinkwater\'s professional timeline and milestones from 2021 to 2026?',
+  'What did Chris Drinkwater do with ROCK and agentic AI architectures in 2024?',
+
+  // New Era AI details
+  'How does New Era AI help businesses scale with AI automation?',
+  'What is the technical backbone of New Era AI\'s flagship products (Nexus One & Echo One)?',
+  'What is the execution-first process used by New Era AI?',
+  'Can you share a recent update or milestone from the team?',
+  'What has the team said about Echo One?',
+
+  // General Risk Engine / Transaction queries
   'What are the top flagged transactions this week?',
   'Summarize the rejection rate trend over the last 7 days.',
   'Which merchants have the highest risk scores?',
@@ -34,8 +53,18 @@ export function ChatPage() {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const shuffleSuggestions = useCallback(() => {
+    const shuffled = [...SUGGESTED_PROMPTS].sort(() => Math.random() - 0.5);
+    setSuggestions(shuffled.slice(0, 5));
+  }, []);
+
+  useEffect(() => {
+    shuffleSuggestions();
+  }, [shuffleSuggestions]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -153,7 +182,7 @@ export function ChatPage() {
               Online
             </div>
             <button
-              onClick={() =>
+              onClick={() => {
                 setMessages([
                   {
                     id: 'welcome-' + Date.now(),
@@ -161,8 +190,9 @@ export function ChatPage() {
                     content: "Hello! I'm your **AI Risk Analyst**. How can I help you today?",
                     timestamp: new Date(),
                   },
-                ])
-              }
+                ]);
+                shuffleSuggestions();
+              }}
               className="p-2 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
               title="Clear chat"
             >
@@ -234,7 +264,7 @@ export function ChatPage() {
               <Sparkles size={10} /> Suggested questions
             </p>
             <div className="flex flex-wrap gap-2">
-              {SUGGESTED_PROMPTS.map((prompt) => (
+              {suggestions.map((prompt: string) => (
                 <button
                   key={prompt}
                   onClick={() => sendMessage(prompt)}

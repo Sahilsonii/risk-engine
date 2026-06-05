@@ -37,8 +37,8 @@ export const api = {
   getRecent: (token: string) =>
     fetchWithAuth<{ data: any[] }>('/api/recent', token),
 
-  getNews: (token: string) =>
-    fetchWithAuth<{ articles: any[] }>('/api/news', token),
+  getNews: (token: string, forceRefresh = false) =>
+    fetchWithAuth<{ articles: any[]; fetchedAt?: string }>('/api/news', token, forceRefresh ? { refresh: '1' } : undefined),
 
   reviewTransaction: async (
     token: string,
@@ -71,5 +71,20 @@ export const api = {
       throw new Error(err.error || `HTTP ${res.status}`);
     }
     return res.blob();
+  },
+
+  deleteOrganization: async (token: string, id: string): Promise<{ success: boolean; message: string }> => {
+    const res = await fetch(`${API_BASE}/api/organizations/${id}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return res.json();
   },
 };

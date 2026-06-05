@@ -98,6 +98,49 @@ ${matches.map((m, i) => `[Snippet #${i+1}]\nQuestion: ${m.question}\nAnswer: ${m
 =============================================================`;
 }
 
+function cleanMessageContent(text: string): string {
+  if (!text) return '';
+  const lines = text.split('\n');
+  const cleaned: string[] = [];
+
+  const metaKeywords = [
+    'user question', 'snippet', 'event:', 'action:', 'personal effort:', 
+    'raised over', 'additional effort:', 'purpose:', 'what did chris',
+    'user asks', 'user role', 'ai role', 'current state', 'available data',
+    'knowledge base', 'role:', 'context:', 'identity:', 'focus:', 'achievement:',
+    'location:', 'key traits:', 'education:', 'mission:', 'constraint:',
+    'tone:', 'style:', 'the system prompt', 'the instructions', 'since there is no',
+    'i must be honest', 'however, to be', 'rule:', 'crucially:', 'context is',
+    'expert ai risk analyst', 'rag-enhanced'
+  ];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const lower = trimmed.toLowerCase();
+    
+    // Check if the line matches any meta keyword
+    const isMeta = metaKeywords.some(keyword => {
+      if (keyword.endsWith(':')) {
+        return lower.includes(keyword) || 
+               (trimmed.startsWith('*') && lower.includes(keyword.replace(':', '')));
+      }
+      return lower.includes(keyword);
+    });
+
+    if (isMeta) {
+      continue; // skip the metadata/reasoning line
+    }
+
+    cleaned.push(line);
+  }
+
+  return cleaned
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .join('\n')
+    .trim();
+}
+
 // ── RAG: Fetch live transaction context for the org ──────────────────────────
 async function fetchTransactionContext(tenantId: string, dbRole: string): Promise<string> {
   try {
@@ -229,7 +272,7 @@ INSTRUCTIONS:
       .filter((m: any) => m.role && m.content)
       .map((m: any) => ({
         role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
+        parts: [{ text: m.role === 'assistant' ? cleanMessageContent(m.content) : m.content }],
       }));
 
     // Gemini API requires that history starts with a user message
@@ -245,7 +288,8 @@ INSTRUCTIONS:
     });
 
     const result = await chat.sendMessage(message);
-    const reply  = result.response.text();
+    const rawReply  = result.response.text();
+    const reply = cleanMessageContent(rawReply);
 
     return res.json({ reply });
   } catch (err: any) {
