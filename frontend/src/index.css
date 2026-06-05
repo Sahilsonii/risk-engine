@@ -19,7 +19,7 @@ body {
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* Scrollbar styling for enterprise look */
+/* ─── Scrollbar styling for enterprise look ─── */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -38,7 +38,118 @@ body {
   background: #4B5563;
 }
 
+/* Light mode scrollbar */
+.light ::-webkit-scrollbar-track,
+:root:not(.dark) ::-webkit-scrollbar-track {
+  background: #f4f4f5;
+}
+.light ::-webkit-scrollbar-thumb,
+:root:not(.dark) ::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+}
+
 /* Smooth transitions */
 * {
   scroll-behavior: smooth;
+}
+
+/* ─── Dashboard Layout: Sticky Header + Scrollable Content ─── */
+.dashboard-main {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.dashboard-sticky-header {
+  flex-shrink: 0;
+  background: #fafafa;
+  position: relative;
+  z-index: 20;
+}
+
+.dark .dashboard-sticky-header {
+  background: #09090b;
+}
+
+.dashboard-scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dashboard-scroll-area::-webkit-scrollbar {
+  width: 5px;
+}
+.dashboard-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dashboard-scroll-area::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.25);
+  border-radius: 10px;
+}
+.dashboard-scroll-area::-webkit-scrollbar-thumb:hover {
+  background: rgba(113, 113, 122, 0.45);
+}
+
+/* Frosted-glass fade overlay at top of scroll area */
+.scroll-fade-overlay {
+  position: sticky;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  margin-bottom: -24px;
+  pointer-events: none;
+  z-index: 10;
+  background: linear-gradient(
+    to bottom,
+    rgba(250, 250, 250, 0.95) 0%,
+    rgba(250, 250, 250, 0.6) 50%,
+    transparent 100%
+  );
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.dark .scroll-fade-overlay {
+  background: linear-gradient(
+    to bottom,
+    rgba(9, 9, 11, 0.95) 0%,
+    rgba(9, 9, 11, 0.6) 50%,
+    transparent 100%
+  );
+}
+
+/* ─── Tab Switch Animation ─── */
+@keyframes tabFadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tab-panel-animate {
+  animation: tabFadeSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Tab button active indicator transition */
+.tab-btn {
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+
+
+/* ─── Startup skeleton pulse ─── */
+@keyframes skeletonShimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }

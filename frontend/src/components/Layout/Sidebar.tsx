@@ -1,19 +1,17 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { useClerk, useOrganization, OrganizationSwitcher } from '@clerk/clerk-react';
+import { useClerk, OrganizationSwitcher } from '@clerk/clerk-react';
 import {
   LayoutDashboard,
   LogOut,
   Activity,
   UserCircle,
+  Bot,
 } from 'lucide-react';
 import clsx from 'clsx';
 
 export function Sidebar() {
   const { signOut } = useClerk();
-  const { organization } = useOrganization();
   const navigate = useNavigate();
-
-  const isAdmin = organization?.slug === 'risk-admins-org';
 
   return (
     <aside
@@ -61,7 +59,21 @@ export function Sidebar() {
           }
         >
           <LayoutDashboard size={14} />
-          {isAdmin ? 'Admin Dashboard' : 'My Transactions'}
+          Dashboard
+        </NavLink>
+        <NavLink
+          to="/chat"
+          className={({ isActive }) =>
+            clsx(
+              'flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium transition-colors',
+              isActive
+                ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold'
+                : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/50'
+            )
+          }
+        >
+          <Bot size={14} />
+          AI Assistant
         </NavLink>
       </nav>
 

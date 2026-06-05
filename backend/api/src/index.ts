@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import { clerkAuthMiddleware } from './middleware/clerkAuth';
 import { errorHandler } from './middleware/errorHandler';
 import transactionRoutes from './routes/transactions';
+import chatRoutes from './routes/chat';
 import logger from './logger';
 
 process.env.SERVICE_NAME = 'api';
@@ -27,6 +28,7 @@ app.use((req, _res, next) => {
 
 // ── All routes are JWT-protected — no unauthenticated routes ─
 app.use('/api', clerkAuthMiddleware, transactionRoutes);
+app.use('/api', clerkAuthMiddleware, chatRoutes);
 
 // ── 404 handler ───────────────────────────────────────────────
 app.use((_req, res) => {

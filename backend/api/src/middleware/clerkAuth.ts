@@ -67,10 +67,8 @@ export async function clerkAuthMiddleware(
     let dbRole: 'app_user' | 'app_admin';
     let tenantId: string;
 
-    const isAdmin = 
-      orgId === ADMIN_ORG_ID || 
-      orgSlug === 'risk-admins-org' || 
-      orgSlug?.includes('admin');
+    const userRole = (payload.org_role || payload.o?.r) as string | undefined;
+    const isAdmin = userRole === 'org:admin' || userRole === 'admin';
 
     if (isAdmin) {
       dbRole   = 'app_admin';

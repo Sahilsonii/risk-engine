@@ -8,8 +8,8 @@ import {
   OrganizationList,
 } from '@clerk/clerk-react';
 import { MerchantDashboard } from './pages/MerchantDashboard';
-import { AdminDashboard }    from './pages/AdminDashboard';
 import { ProfilePage }       from './pages/ProfilePage';
+import { ChatPage }          from './pages/ChatPage';
 import { Login }             from './pages/Login';
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -53,10 +53,6 @@ function DashboardRouter() {
     );
   }
 
-  // The slug you set in Clerk for the admin org
-  if (organization.slug === 'risk-admins-org' || organization.slug?.includes('admin')) {
-    return <AdminDashboard />;
-  }
   return <MerchantDashboard />;
 }
 
@@ -88,6 +84,19 @@ export default function App() {
               <>
                 <SignedIn>
                   <DashboardRouter />
+                </SignedIn>
+                <SignedOut>
+                  <RedirectToSignIn />
+                </SignedOut>
+              </>
+            }
+          />
+          <Route
+            path="/chat"
+            element={
+              <>
+                <SignedIn>
+                  <ChatPage />
                 </SignedIn>
                 <SignedOut>
                   <RedirectToSignIn />

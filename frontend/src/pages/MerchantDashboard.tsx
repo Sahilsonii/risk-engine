@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, CSSProperties } from 'react';
 import { useAuth, useOrganization } from '@clerk/clerk-react';
 import { RefreshCw, FileDown, ChevronDown, ChevronUp, Send } from 'lucide-react';
 import { TransactionTable } from '../components/Tables/TransactionTable';
@@ -65,6 +65,18 @@ export function MerchantDashboard() {
 
   // Pie chart hover
   const [hoveredPieSlice, setHoveredPieSlice] = useState<number | null>(null);
+
+  // Tab animation key + slider underline
+  const [tabKey, setTabKey] = useState(0);
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [sliderStyle, setSliderStyle] = useState<CSSProperties>({});
+
+  useEffect(() => {
+    const el = tabRefs.current[activeTab];
+    if (el) {
+      setSliderStyle({ left: el.offsetLeft, width: el.offsetWidth });
+    }
+  }, [activeTab]);
 
   const fetchNews = useCallback(async () => {
     if (lastNewsFetch && Date.now() - lastNewsFetch.getTime() < 5 * 60 * 1000) {
@@ -301,146 +313,77 @@ export function MerchantDashboard() {
       style={{ fontFamily: 'Inter, sans-serif' }}
     >
       <Sidebar />
-      <main className="ml-56 flex-1 p-6">
-        {/* Header */}
-        <TopBar
-          title={organization?.name || "My Transactions"}
-          subtitle={isOrgAdmin ? "Merchant Dashboard (Administrator)" : "Merchant Dashboard (Member)"}
-          lastUpdated={lastUpdated}
-          onRefresh={fetchData}
-        />
+      <main className="ml-56 flex-1 flex flex-col min-h-screen">
+        {/* ── Sticky frosted-glass header ── */}
+        <div className="sticky top-0 z-40 bg-zinc-50/90 dark:bg-zinc-950/90 backdrop-blur-md border-b border-zinc-200/60 dark:border-zinc-800/60 px-6 pt-5 pb-0 shadow-sm">
+          <TopBar
+            title={organization?.name || "My Transactions"}
+            subtitle={isOrgAdmin ? "Merchant Dashboard (Administrator)" : "Merchant Dashboard (Member)"}
+            lastUpdated={lastUpdated}
+            onRefresh={fetchData}
+          />
 
-        {/* KPI Strip */}
-        {startupLoading ? (
-          <div className={`grid ${isOrgAdmin ? 'grid-cols-5' : 'grid-cols-4'} gap-4 mb-6`}>
-            {[...Array(isOrgAdmin ? 5 : 4)].map((_, i) => (
-              <div key={i} className="h-[92px] bg-white dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 flex flex-col justify-between animate-pulse">
-                <div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-2/3" />
-                <div className="h-6 bg-zinc-200 dark:bg-zinc-800 rounded w-1/2" />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className={`grid ${isOrgAdmin ? 'grid-cols-5' : 'grid-cols-4'} gap-4 mb-6`}>
-            <KPICard
-              label="Total Transactions"
-              value={stats?.total || '—'}
-              accent="zinc"
-              infoText={stats?.ai_insights?.total}
-              loadingInfo={!stats?.ai_insights}
-            />
-            <KPICard
-              label="Approval Rate"
-              value={stats ? `${stats.approval_rate || 0}%` : '—'}
-              accent="green"
-              infoText={stats?.ai_insights?.approval_rate}
-              loadingInfo={!stats?.ai_insights}
-            />
-            {isOrgAdmin && (
-              <KPICard
-                label="Rejection Rate"
-                value={stats && (Number(stats.total) - Number(stats.pending)) > 0 ? `${((Number(stats.rejected) / (Number(stats.total) - Number(stats.pending))) * 100).toFixed(1)}%` : '0%'}
-                accent="red"
-                infoText={stats?.ai_insights?.rejection_rate}
-                loadingInfo={!stats?.ai_insights}
+          {/* KPI Strip — always 5 cards */}
+          {startupLoading ? (
+            <div className="grid grid-cols-5 gap-4 mt-4 mb-4">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="h-[88px] bg-white dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 flex flex-col justify-between animate-pulse">
+                  <div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-2/3" />
+                  <div className="h-6 bg-zinc-200 dark:bg-zinc-800 rounded w-1/2" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-5 gap-4 mt-4 mb-4">
+              <KPICard label="Total Transactions" value={stats?.total || '—'} accent="zinc" infoText={stats?.ai_insights?.total} loadingInfo={!stats?.ai_insights} />
+              <KPICard label="Approval Rate" value={stats ? `${stats.approval_rate || 0}%` : '—'} accent="green" infoText={stats?.ai_insights?.approval_rate} loadingInfo={!stats?.ai_insights} />
+              <KPICard label="Rejection Rate" value={stats && (Number(stats.total) - Number(stats.pending)) > 0 ? `${((Number(stats.rejected) / (Number(stats.total) - Number(stats.pending))) * 100).toFixed(1)}%` : '0%'} accent="red" infoText={stats?.ai_insights?.rejection_rate} loadingInfo={!stats?.ai_insights} />
+              <KPICard label="Flagged" value={stats?.flagged || '—'} sub="Requires review" accent="amber" infoText={stats?.ai_insights?.flagged} loadingInfo={!stats?.ai_insights} />
+              <KPICard label="Total Volume" value={stats ? `$${Number(stats.total_volume).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'} accent="blue" infoText={stats?.ai_insights?.total_volume} loadingInfo={!stats?.ai_insights} />
+            </div>
+          )}
+
+          {/* Tab Selector + Report Download */}
+          <div className="flex items-center justify-between">
+            <div className="flex gap-1 relative">
+              {/* Animated underline slider */}
+              <div
+                className="absolute bottom-0 h-[2px] bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-300 ease-out shadow-[0_0_8px_rgba(59,130,246,0.4)] z-10"
+                style={sliderStyle}
               />
-            )}
-            <KPICard
-              label="Flagged"
-              value={stats?.flagged || '—'}
-              sub="Requires review"
-              accent="amber"
-              infoText={stats?.ai_insights?.flagged}
-              loadingInfo={!stats?.ai_insights}
-            />
-            <KPICard
-              label="Total Volume"
-              value={stats ? `$${Number(stats.total_volume).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
-              accent="blue"
-              infoText={stats?.ai_insights?.total_volume}
-              loadingInfo={!stats?.ai_insights}
-            />
-          </div>
-        )}
-
-        {/* Tab Selector + Report Download */}
-        <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 mb-6">
-          <div className="flex gap-2">
+              {(['transactions','analytics','flagged','news','members'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  ref={(el: HTMLButtonElement | null) => { tabRefs.current[tab] = el; }}
+                  onClick={() => { setActiveTab(tab); if (tab === 'transactions') setPage(1); setTabKey((k: number) => k + 1); if (tab === 'news') fetchNews(); }}
+                  className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-wider border-b-2 border-transparent transition-all duration-200 whitespace-nowrap ${
+                    activeTab === tab ? 'text-blue-600 dark:text-blue-400' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
+                  }`}
+                >
+                  {tab === 'transactions' ? 'Transaction History'
+                    : tab === 'analytics' ? 'Volume Velocity & Analytics'
+                    : tab === 'flagged' ? 'Flagged & Rejected Audit'
+                    : tab === 'news' ? 'News & Alerts'
+                    : isOrgAdmin ? 'Members & Settings' : 'Organization Members'}
+                </button>
+              ))}
+            </div>
             <button
-              onClick={() => { setActiveTab('transactions'); setPage(1); }}
-              className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-all ${
-                activeTab === 'transactions'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
-              }`}
+              onClick={handleDownloadReport}
+              disabled={downloadingReport}
+              className="flex items-center gap-1.5 px-3 py-1.5 mb-1 text-xs text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-all font-semibold disabled:opacity-50"
             >
-              Transaction History
-            </button>
-            <button
-              onClick={() => setActiveTab('analytics')}
-              className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-all ${
-                activeTab === 'analytics'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
-              }`}
-            >
-              Volume Velocity & Analytics
-            </button>
-            <button
-              onClick={() => setActiveTab('flagged')}
-              className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-all ${
-                activeTab === 'flagged'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
-              }`}
-            >
-              Flagged & Rejected Audit
-            </button>
-            <button
-              onClick={() => setActiveTab('news')}
-              className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-all ${
-                activeTab === 'news'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
-              }`}
-            >
-              News & Alerts
-            </button>
-            <button
-              onClick={() => setActiveTab('members')}
-              className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-all ${
-                activeTab === 'members'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
-              }`}
-            >
-              {isOrgAdmin ? 'Members & Settings' : 'Organization Members'}
+              {downloadingReport ? <><div className="w-3 h-3 border-2 border-blue-400/20 border-t-blue-400 rounded-full animate-spin" />Generating...</> : <><FileDown size={12} />30-Day Report</>}
             </button>
           </div>
+        </div>{/* end sticky header */}
 
-          {/* Report Download Button */}
-          <button
-            onClick={handleDownloadReport}
-            disabled={downloadingReport}
-            className="flex items-center gap-1.5 px-3 py-1.5 mb-1 text-xs text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {downloadingReport ? (
-              <>
-                <div className="w-3 h-3 border-2 border-blue-400/20 border-t-blue-400 rounded-full animate-spin" />
-                Generating AI Report...
-              </>
-            ) : (
-              <>
-                <FileDown size={12} />
-                30-Day Report
-              </>
-            )}
-          </button>
-        </div>
+        {/* ── Scrollable tab content ── */}
+        <div className="flex-1 overflow-auto px-6 py-6">
 
         {/* ═══════════════════════ TAB: TRANSACTIONS ═══════════════════════ */}
         {activeTab === 'transactions' && (
-          <div className="bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden">
+          <div key={tabKey} className="bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden">
             <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center">
               <h2 className="text-xs font-medium text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">Transaction History</h2>
               {pagination && (
@@ -450,7 +393,16 @@ export function MerchantDashboard() {
               )}
             </div>
 
-            <TransactionTable transactions={transactions} loading={loading || startupLoading} showMetadata={isOrgAdmin} />
+            <TransactionTable
+              transactions={transactions}
+              loading={loading || startupLoading}
+              showMetadata={true}
+              onQuickReview={(txnId: string) => {
+                setActiveTab('flagged');
+                setExpandedReviewId(txnId);
+                setTabKey((k: number) => k + 1);
+              }}
+            />
 
             {/* Pagination */}
             {pagination && pagination.pages > 1 && (
@@ -479,7 +431,7 @@ export function MerchantDashboard() {
 
         {/* ═══════════════════════ TAB: ANALYTICS ═══════════════════════ */}
         {activeTab === 'analytics' && (
-          <div className="space-y-6">
+          <div key={tabKey} className="space-y-6">
             {/* Row 1: Volume Velocity Chart + AI Analysis */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 space-y-6">
@@ -1025,7 +977,7 @@ export function MerchantDashboard() {
 
         {/* ═══════════════════════ TAB: FLAGGED & REJECTED AUDIT ═══════════════════════ */}
         {activeTab === 'flagged' && (
-          <div className="space-y-4">
+          <div key={tabKey} className="space-y-4">
             {startupLoading ? (
               <div className="space-y-3">
                 {[...Array(3)].map((_, i) => (
@@ -1214,7 +1166,7 @@ export function MerchantDashboard() {
 
         {/* ═══════════════════════ TAB: NEWS ═══════════════════════ */}
         {activeTab === 'news' && (
-          <div className="space-y-4">
+          <div key={tabKey} className="space-y-4">
             <div className="bg-white dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 flex justify-between items-center">
               <div>
                 <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-1">Real-time Financial & Transaction News</h3>
@@ -1302,7 +1254,7 @@ export function MerchantDashboard() {
 
         {/* ═══════════════════════ TAB: MEMBERS ═══════════════════════ */}
         {activeTab === 'members' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div key={tabKey} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {startupLoading ? (
               <>
                 <div className="lg:col-span-2 h-[350px] bg-white dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg animate-pulse" />
@@ -1528,6 +1480,7 @@ export function MerchantDashboard() {
             )}
           </div>
         )}
+        </div>{/* end scrollable content */}
       </main>
     </div>
   );
