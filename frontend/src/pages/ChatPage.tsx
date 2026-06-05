@@ -47,7 +47,7 @@ export function ChatPage() {
       id: 'welcome',
       role: 'assistant',
       content:
-        "Hello! I'm your **AI Risk Analyst**, powered by Gemma and trained on your transaction data. Ask me anything about your transactions, risk trends, or merchant analytics. I use RAG to retrieve real-time context from your data.",
+        "Hello! I'm your **NEW Era AI & AI Risk Analyst**. Ask me anything about your transactions, risk trends, or merchant analytics or any kind of information regarding NEW ERA AI and it's team story Haha!.",
       timestamp: new Date(),
     },
   ]);
