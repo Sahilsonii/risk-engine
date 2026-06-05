@@ -2,6 +2,8 @@
 
 EVEY is a containerized, event-driven, multi-tenant transaction risk monitoring system. It processes simulated financial transactions, evaluates their risk asynchronously, and displays them on a glassmorphic React dashboard with AI-powered auditing and administrative overrides.
 
+![System Architecture](architecture.jpg)
+
 ---
 
 ## 🚀 How to Run (Docker)

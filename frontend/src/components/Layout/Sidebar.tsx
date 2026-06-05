@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useClerk, OrganizationSwitcher } from '@clerk/clerk-react';
 import {
@@ -12,6 +13,26 @@ import clsx from 'clsx';
 export function Sidebar() {
   const { signOut } = useClerk();
   const navigate = useNavigate();
+  const [isDark, setIsDark] = useState(() => {
+    return document.documentElement.classList.contains('dark');
+  });
+
+  useEffect(() => {
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.attributeName === 'class') {
+          setIsDark(document.documentElement.classList.contains('dark'));
+        }
+      });
+    });
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <aside
@@ -52,7 +73,7 @@ export function Sidebar() {
           <NavLink
             key={to}
             to={to}
-            className={({ isActive }) =>
+            className={({ isActive }: { isActive: boolean }) =>
               clsx(
                 'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200',
                 isActive
@@ -61,7 +82,7 @@ export function Sidebar() {
               )
             }
           >
-            {({ isActive }) => (
+            {({ isActive }: { isActive: boolean }) => (
               <>
                 <Icon size={14} className={isActive ? 'text-blue-500 dark:text-blue-400' : ''} />
                 {label}
@@ -83,31 +104,52 @@ export function Sidebar() {
             afterSelectOrganizationUrl="/dashboard"
             hidePersonal={true}
             appearance={{
+              variables: {
+                colorBackground: isDark ? '#18181b' : '#ffffff',
+                colorText: isDark ? '#f4f4f5' : '#18181b',
+                colorTextSecondary: isDark ? '#a1a1aa' : '#71717a',
+                colorBorder: isDark ? '#27272a' : '#e4e4e7',
+                colorPrimary: '#3b82f6',
+              },
               elements: {
                 rootBox: 'w-full',
                 organizationSwitcherTrigger:
-                  'w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg py-1.5 px-3 flex justify-between items-center text-xs font-medium transition-all duration-200',
-                organizationSwitcherTriggerIcon: 'text-zinc-500 dark:text-zinc-400',
-                organizationPreviewTextContainer: 'text-zinc-800 dark:text-zinc-100 text-left',
-                organizationPreviewTitle: 'text-zinc-800 dark:text-zinc-200 text-xs font-medium',
-                organizationPreviewSubtitle: 'text-zinc-500 dark:text-zinc-500 text-[10px]',
+                  `w-full border rounded-lg py-1.5 px-3 flex justify-between items-center text-xs font-medium transition-all duration-200 ${
+                    isDark
+                      ? 'bg-zinc-900 border-zinc-700 text-zinc-100 hover:bg-zinc-800'
+                      : 'bg-zinc-50 border-zinc-200 text-zinc-800 hover:bg-zinc-100'
+                  }`,
+                organizationSwitcherTriggerIcon: isDark ? 'text-zinc-400' : 'text-zinc-500',
+                organizationPreviewTextContainer: 'text-left',
+                organizationPreviewTitle: isDark ? 'text-zinc-200 text-xs font-medium' : 'text-zinc-800 text-xs font-medium',
+                organizationPreviewSubtitle: 'text-zinc-500 text-[10px]',
                 userPreviewTextContainer: 'text-left',
                 organizationSwitcherPopoverCard:
-                  'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl text-zinc-800 dark:text-zinc-100',
-                organizationSwitcherPopoverActions: 'bg-transparent text-zinc-800 dark:text-zinc-100',
+                  isDark
+                    ? 'bg-zinc-900 border border-zinc-800 shadow-2xl text-zinc-100'
+                    : 'bg-white border border-zinc-200 shadow-2xl text-zinc-800',
+                organizationSwitcherPopoverActions: 'bg-transparent',
                 organizationSwitcherPopoverActionButton:
-                  'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 hover:text-zinc-800 dark:hover:text-zinc-100 transition-colors rounded-md',
-                organizationSwitcherPopoverActionButtonText: 'text-zinc-600 dark:text-zinc-300',
-                organizationSwitcherPopoverActionButtonIcon: 'text-zinc-500 dark:text-zinc-400',
+                  `transition-colors rounded-md ${
+                    isDark
+                      ? 'text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100'
+                      : 'text-zinc-600 hover:bg-zinc-50 hover:text-zinc-800'
+                  }`,
+                organizationSwitcherPopoverActionButtonText: isDark ? 'text-zinc-300' : 'text-zinc-600',
+                organizationSwitcherPopoverActionButtonIcon: isDark ? 'text-zinc-400' : 'text-zinc-500',
                 organizationSwitcherPopoverActionButton__manageOrganization: 'hidden',
                 organizationSwitcherPopoverFooter:
-                  'bg-transparent border-t border-zinc-200 dark:border-zinc-800 text-zinc-500',
+                  `bg-transparent border-t text-zinc-500 ${
+                    isDark ? 'border-zinc-800' : 'border-zinc-200'
+                  }`,
                 organizationSwitcherPopoverItem:
-                  'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors rounded-md',
-                organizationSwitcherPopoverItemText: 'text-zinc-600 dark:text-zinc-300 font-medium',
-                organizationSwitcherPopoverItemSubtitle: 'text-zinc-500 dark:text-zinc-500 text-[10px]',
-                userPreviewSecondaryIdentifier: 'text-zinc-500 dark:text-zinc-500 text-[10px]',
-                userPreviewMainIdentifier: 'text-zinc-700 dark:text-zinc-200 text-xs font-medium',
+                  `transition-colors rounded-md ${
+                    isDark ? 'text-zinc-300 hover:bg-zinc-800' : 'text-zinc-600 hover:bg-zinc-100'
+                  }`,
+                organizationSwitcherPopoverItemText: isDark ? 'text-zinc-300 font-medium' : 'text-zinc-600 font-medium',
+                organizationSwitcherPopoverItemSubtitle: 'text-zinc-500 text-[10px]',
+                userPreviewSecondaryIdentifier: 'text-zinc-500 text-[10px]',
+                userPreviewMainIdentifier: isDark ? 'text-zinc-200 text-xs font-medium' : 'text-zinc-700 text-xs font-medium',
               },
             }}
           />
