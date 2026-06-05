@@ -1,18 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { Pool } from 'pg';
+import { getPool } from '../db/pool';
 import logger from '../logger';
 
 const router = Router();
-
-// ── DB Pool (reuse from transactions if possible, else new) ──────────────────
-const pool = new Pool({
-  host:     process.env.DB_HOST     || 'localhost',
-  port:     parseInt(process.env.DB_PORT  || '5432', 10),
-  user:     process.env.DB_USER     || 'api_service',
-  password: process.env.DB_PASS     || 'api_service_pass',
-  database: process.env.DB_NAME     || 'risk_engine',
-});
 
 // ── Gemini AI client ─────────────────────────────────────────────────────────
 const API_KEY = process.env.gemini_api_key || process.env.GEMINI_API_KEY || '';
@@ -100,55 +91,68 @@ ${matches.map((m, i) => `[Snippet #${i+1}]\nQuestion: ${m.question}\nAnswer: ${m
 
 function cleanMessageContent(text: string): string {
   if (!text) return '';
+
   const lines = text.split('\n');
+
+  // Strip leading reasoning/planning lines.
+  // We identify them as lines starting with '* ' or '• ' at the very beginning of the response
+  // that contain meta/planning language.
+  let startIdx = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed === '') continue;
+    
+    const isReasoningBullet = (trimmed.startsWith('* ') || trimmed.startsWith('• ')) && 
+      /user wants|user asks|acknowledge|mention|explain|note:|point out|system prompt|constraint|crucially/i.test(trimmed);
+    
+    if (isReasoningBullet) {
+      startIdx = i + 1;
+    } else {
+      break;
+    }
+  }
+
+  const afterPreamble = lines.slice(startIdx);
   const cleaned: string[] = [];
 
-  const metaKeywords = [
-    'user question', 'snippet', 'event:', 'action:', 'personal effort:', 
-    'raised over', 'additional effort:', 'purpose:', 'what did chris',
-    'user asks', 'user role', 'ai role', 'current state', 'available data',
-    'knowledge base', 'role:', 'context:', 'identity:', 'focus:', 'achievement:',
-    'location:', 'key traits:', 'education:', 'mission:', 'constraint:',
-    'tone:', 'style:', 'the system prompt', 'the instructions', 'since there is no',
-    'i must be honest', 'however, to be', 'rule:', 'crucially:', 'context is',
-    'expert ai risk analyst', 'rag-enhanced'
-  ];
+  // Filter out any other clear planning/meta lines that might be scattered,
+  // but be extremely conservative so we don't strip actual response content.
+  const planningRegex = /^\*\s+(user (wants|asks|is asking|question|need)|the user|system prompt|constraint|crucially)/i;
 
-  for (const line of lines) {
+  for (const line of afterPreamble) {
     const trimmed = line.trim();
-    const lower = trimmed.toLowerCase();
-    
-    // Check if the line matches any meta keyword
-    const isMeta = metaKeywords.some(keyword => {
-      if (keyword.endsWith(':')) {
-        return lower.includes(keyword) || 
-               (trimmed.startsWith('*') && lower.includes(keyword.replace(':', '')));
-      }
-      return lower.includes(keyword);
-    });
-
-    if (isMeta) {
-      continue; // skip the metadata/reasoning line
+    if (!planningRegex.test(trimmed)) {
+      cleaned.push(line);
     }
-
-    cleaned.push(line);
   }
 
   return cleaned
     .map(line => line.trim())
-    .filter(line => line.length > 0)
+    .filter((line, idx, arr) => {
+      // Collapse more than one consecutive blank line
+      if (line.length === 0 && idx > 0 && arr[idx - 1].length === 0) return false;
+      return true;
+    })
     .join('\n')
     .trim();
 }
 
 // ── RAG: Fetch live transaction context for the org ──────────────────────────
 async function fetchTransactionContext(tenantId: string, dbRole: string): Promise<string> {
+  const pool = getPool();
+  const client = await pool.connect();
   try {
-    const isStatsAdmin = dbRole === 'app_admin';
-    const whereClause = isStatsAdmin ? 'WHERE 1=1' : 'WHERE tenant_id = $1';
-    const params = isStatsAdmin ? [] : [tenantId];
+    await client.query('BEGIN');
+    await client.query(`SET LOCAL ROLE ${dbRole}`);
 
-    const result = await pool.query(
+    if (dbRole === 'app_user') {
+      await client.query(
+        `SET LOCAL app.current_tenant = '${tenantId}'`
+      );
+      logger.debug({ tenantId }, 'Tenant session variable set for RLS in chat');
+    }
+
+    const result = await client.query(
       `SELECT
          COUNT(*)                                      AS total,
          SUM(amount)                                   AS total_volume,
@@ -158,36 +162,33 @@ async function fetchTransactionContext(tenantId: string, dbRole: string): Promis
          SUM(CASE WHEN status = 'PENDING'   THEN 1 ELSE 0 END)  AS pending,
          MIN(created_at)                               AS oldest_txn,
          MAX(created_at)                               AS newest_txn
-       FROM transactions
-       ${whereClause}`,
-      params
+       FROM transactions`
     );
 
     const stats = result.rows[0];
 
     // Recent flagged/rejected transactions (last 10)
-    const recentFlagged = await pool.query(
+    const recentFlagged = await client.query(
       `SELECT id, amount, status, customer_name, merchant_name, created_at
        FROM transactions
-       ${isStatsAdmin ? "WHERE status IN ('FLAGGED', 'REJECTED')" : "WHERE tenant_id = $1 AND status IN ('FLAGGED', 'REJECTED')"}
+       WHERE status IN ('FLAGGED', 'REJECTED')
        ORDER BY created_at DESC
-       LIMIT 10`,
-      params
+       LIMIT 10`
     );
 
     // Top merchants by volume
-    const topMerchants = await pool.query(
+    const topMerchants = await client.query(
       `SELECT merchant_name, COUNT(*) as count, SUM(amount) as volume
        FROM transactions
-       ${isStatsAdmin ? "WHERE 1=1" : "WHERE tenant_id = $1"}
        GROUP BY merchant_name
        ORDER BY volume DESC
-       LIMIT 5`,
-      params
+       LIMIT 5`
     );
 
+    await client.query('COMMIT');
+
     const context = `
-LIVE TRANSACTION DATA CONTEXT (Scope: ${isStatsAdmin ? 'All Tenants (Admin View)' : `Tenant: ${tenantId}`}):
+LIVE TRANSACTION DATA CONTEXT (Scope: ${dbRole === 'app_admin' ? 'All Tenants (Admin View)' : `Tenant: ${tenantId}`}):
 =============================================================
 SUMMARY STATISTICS:
 - Total Transactions: ${stats.total || 0}
@@ -211,8 +212,11 @@ ${topMerchants.rows.length === 0 ? 'None' : topMerchants.rows.map((m: any) =>
 
     return context;
   } catch (err) {
+    await client.query('ROLLBACK');
     logger.error({ err }, 'Failed to fetch transaction context for RAG');
     return 'Transaction data temporarily unavailable. Please answer based on general financial risk knowledge.';
+  } finally {
+    client.release();
   }
 }
 
@@ -243,28 +247,29 @@ router.post('/chat', async (req: Request, res: Response) => {
     const datasetContext = searchDataset(message);
 
     // ── Build system prompt with RAG context ────────────────────────────────
-    const systemPrompt = `You are an expert AI Risk Analyst for a financial transaction risk management platform called NewEra AI.
-You have access to real-time transaction data for the current organisation via a RAG (Retrieval-Augmented Generation) system.
+    const systemPrompt = `You are Nova, an intelligent, helpful AI assistant for NewEra AI — a financial transaction risk monitoring platform.
+You have access to real-time transaction data for the current organisation, and a company knowledge base containing details about co-founders (Simon Mathias, Chris Drinkwater) and company members.
 
 ${context}
 ${knowledgeBaseContext}
 ${datasetContext}
 
 INSTRUCTIONS:
-- Always base your answers on the live transaction data OR the co-founder/company knowledge base provided above
-- If asked about co-founders (Simon Mathias, Chris Drinkwater), New Era AI, Stellar Energy UK, CRM automation (GoHighLevel, GHL), use the knowledge base or dataset context
-- Be concise, precise, and data-driven in your responses
-- Format numbers clearly (currency, percentages, counts)
-- If asked about trends, analyse the flagged/rejected patterns
-- Use markdown formatting where helpful (bold for key figures, bullet points for lists)
-- If the data/knowledge base doesn't contain enough information to answer confidently, say so clearly
-- Never fabricate transaction IDs or amounts not present in the data
-- You are speaking to a merchant/analyst user, so maintain a professional but approachable tone
-- CRITICAL: Output ONLY the direct response/message content to the user. Do NOT output any chain-of-thought, internal reasoning, planning bullet points, checklist notes, or user/system prompt metadata. Your output must start directly with your response text.`;
+- You are allowed to answer any kind of questions from the user. Do not restrict the conversation to only transaction monitoring. Feel free to answer general knowledge questions, converse naturally, or discuss the co-founders/team members and their backgrounds.
+- When answering questions about live transaction data, risk patterns, flagged/rejected transactions, and platform statistics, use the data context provided above.
+- When answering questions about the company, co-founders, or team members, use the knowledge base and co-founder context.
+- Keep your answers conversational, concise, and helpful. Use markdown where it improves readability.
+- Format numbers, currencies, and counts clearly.
+- If the user asks about details of company members/co-founders, answer fully and accurately using the context available.
+
+CRITICAL OUTPUT RULE:
+- Do NOT output any internal chain of thought, planning notes, reasoning checklist, system instructions, or metadata in your response.
+- Do NOT output bullet points of your planned actions (e.g., "* User wants...", "* Acknowledge...").
+- Start your response immediately with the direct answer/reply.`;
 
     // ── Build chat history for multi-turn ───────────────────────────────────
     const model = genAI.getGenerativeModel({
-      model: 'gemma-4-31b-it',
+      model: 'gemma-4-26b-a4b-it',
       systemInstruction: systemPrompt,
     });
 

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { createClerkClient } from '@clerk/backend';
 import { getPool } from '../db/pool';
 import { getRedisClient } from '../redis/client';
+import { TransactionStatus } from '../types';
 import logger from '../logger';
 
 const router = Router();
@@ -21,9 +22,10 @@ router.get('/transactions', async (req: Request, res: Response) => {
   const offset   = (page - 1) * limit;
 
   const pool = getPool();
-  const client = await pool.connect();
+  let client;
 
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
 
     // Set database role for this transaction
@@ -89,11 +91,15 @@ router.get('/transactions', async (req: Request, res: Response) => {
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     });
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     logger.error({ err, dbRole }, 'Error fetching transactions');
     res.status(500).json({ error: 'Failed to fetch transactions' });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -104,10 +110,11 @@ router.get('/transactions', async (req: Request, res: Response) => {
 router.get('/stats', async (req: Request, res: Response) => {
   const { dbRole, tenantId } = req.auth;
   const pool   = getPool();
-  const redis  = await getRedisClient();
-  const client = await pool.connect();
+  let client;
 
   try {
+    const redis  = await getRedisClient();
+    client = await pool.connect();
     await client.query('BEGIN');
     await client.query(`SET LOCAL ROLE ${dbRole}`);
 
@@ -234,7 +241,7 @@ router.get('/stats', async (req: Request, res: Response) => {
             }
           `;
 
-          const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+          const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent?key=${apiKey}`;
           const response = await fetch(geminiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -269,11 +276,15 @@ router.get('/stats', async (req: Request, res: Response) => {
       ai_insights:       aiInsights,
     });
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     logger.error({ err }, 'Error fetching stats');
     res.status(500).json({ error: 'Failed to fetch stats' });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -318,9 +329,10 @@ router.get('/transactions/:id/explain', async (req: Request, res: Response) => {
   }
 
   const pool = getPool();
-  const client = await pool.connect();
+  let client;
 
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     await client.query(`SET LOCAL ROLE ${dbRole}`);
     if (dbRole === 'app_user') {
@@ -367,7 +379,7 @@ router.get('/transactions/:id/explain', async (req: Request, res: Response) => {
     `;
 
     // Fetch explanation from Gemini
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent?key=${apiKey}`;
     const response = await fetch(geminiUrl, {
       method: 'POST',
       headers: {
@@ -395,11 +407,15 @@ router.get('/transactions/:id/explain', async (req: Request, res: Response) => {
 
     res.json({ id, explanation });
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     logger.error({ err, id }, 'Error generating AI explanation');
     res.status(500).json({ error: 'Internal server error while generating explanation' });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -418,7 +434,7 @@ router.patch('/transactions/:id/review', async (req: Request, res: Response) => 
     return;
   }
 
-  const validStatuses = ['FLAGGED', 'REJECTED', 'APPROVED', 'SUSPICIOUS', 'PENDING'];
+  const validStatuses = Object.values(TransactionStatus) as string[];
   if (!validStatuses.includes(status)) {
     res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
     return;
@@ -427,19 +443,20 @@ router.patch('/transactions/:id/review', async (req: Request, res: Response) => 
   // Role-based status restrictions:
   // Members can only set FLAGGED or SUSPICIOUS
   // Only admins can APPROVE or REJECT
-  const memberAllowedStatuses = ['FLAGGED', 'SUSPICIOUS'];
-  let finalStatus = status;
+  const memberAllowedStatuses = [TransactionStatus.FLAGGED, TransactionStatus.SUSPICIOUS];
+  let finalStatus = status as TransactionStatus;
 
-  if (dbRole === 'app_user' && !memberAllowedStatuses.includes(status)) {
+  if (dbRole === 'app_user' && !memberAllowedStatuses.includes(finalStatus)) {
     // Member tried to approve/reject — override to FLAGGED
-    finalStatus = 'FLAGGED';
+    finalStatus = TransactionStatus.FLAGGED;
     logger.info({ userId, id, requestedStatus: status }, 'Member attempted admin-only status change — overridden to FLAGGED');
   }
 
   const pool = getPool();
-  const client = await pool.connect();
+  let client;
 
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     await client.query(`SET LOCAL ROLE ${dbRole}`);
     if (dbRole === 'app_user') {
@@ -474,11 +491,15 @@ router.patch('/transactions/:id/review', async (req: Request, res: Response) => 
         : `Transaction status updated to ${finalStatus}.`
     });
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     logger.error({ err, id }, 'Error reviewing transaction');
     res.status(500).json({ error: 'Failed to update transaction review' });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -490,9 +511,10 @@ router.patch('/transactions/:id/review', async (req: Request, res: Response) => 
 router.get('/transactions/report', async (req: Request, res: Response) => {
   const { dbRole, tenantId } = req.auth;
   const pool = getPool();
-  const client = await pool.connect();
+  let client;
 
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     await client.query(`SET LOCAL ROLE ${dbRole}`);
     if (dbRole === 'app_user') {
@@ -580,7 +602,7 @@ router.get('/transactions/report', async (req: Request, res: Response) => {
           }
         `;
 
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent?key=${apiKey}`;
         const aiResponse = await fetch(geminiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -758,11 +780,15 @@ router.get('/transactions/report', async (req: Request, res: Response) => {
     res.setHeader('Content-Disposition', `attachment; filename="NewEraAI_30Day_Report_${new Date().toISOString().split('T')[0]}.html"`);
     res.send(htmlReport);
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     logger.error({ err }, 'Error generating transaction report');
     res.status(500).json({ error: 'Failed to generate report' });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 });
 
