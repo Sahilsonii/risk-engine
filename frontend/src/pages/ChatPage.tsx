@@ -47,7 +47,7 @@ export function ChatPage() {
       id: 'welcome',
       role: 'assistant',
       content:
-        "Hello! I'm your **NEW Era AI & AI Risk Analyst**. Ask me anything about your transactions, risk trends, or merchant analytics or any kind of information regarding NEW ERA AI and it's team story Haha!.",
+        "Hello! I'm Nova AI, your **NEW Era AI & AI Risk Analyst**. Ask me anything about your transactions, risk trends, or merchant analytics or any kind of information regarding NEW ERA AI and it's team story Haha!.",
       timestamp: new Date(),
     },
   ]);
@@ -165,15 +165,15 @@ export function ChatPage() {
       <Sidebar />
 
       <main className="ml-56 flex-1 flex flex-col h-screen overflow-hidden">
-        {/* ── Frosted-glass Header ── */}
+        {/* ── Frosted-glass Header ── */}  
         <div className="sticky top-0 z-40 bg-zinc-50/90 dark:bg-zinc-950/90 backdrop-blur-md border-b border-zinc-200/60 dark:border-zinc-800/60 px-6 py-4 shadow-sm flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
               <Bot size={18} className="text-white" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-zinc-800 dark:text-zinc-100">AI Risk Analyst</h1>
-              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">Powered by Gemma · RAG-enhanced · Live transaction context</p>
+              <h1 className="text-sm font-bold text-zinc-800 dark:text-zinc-100">Nova AI </h1>
+              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">AI Powered by Gemma · For New · Live transaction context</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
