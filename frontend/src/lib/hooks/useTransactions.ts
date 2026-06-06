@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { api } from '../api';
 import { Transaction, Stats, Pagination } from '../../types';
@@ -23,7 +23,7 @@ export function useTransactions({
   page,
   tenantFilter = '',
   statusFilter = '',
-  refreshInterval = 5000,
+  refreshInterval = 8000,           // ← raised from 5 s to 8 s
 }: UseTransactionsOptions): UseTransactionsResult {
   const { getToken } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -32,9 +32,28 @@ export function useTransactions({
   const [loading,      setLoading]      = useState(true);
   const [lastUpdated,  setLastUpdated]  = useState<Date>(new Date());
 
+  // Cache the token so we don't call getToken() on every poll
+  const tokenRef   = useRef<string | null>(null);
+  const tokenExpRef = useRef<number>(0);
+
+  const getCachedToken = useCallback(async () => {
+    const now = Date.now();
+    // Reuse cached token if it is less than 50 seconds old
+    if (tokenRef.current && now < tokenExpRef.current) {
+      return tokenRef.current;
+    }
+    const token = await getToken();
+    tokenRef.current  = token;
+    tokenExpRef.current = now + 50_000;   // cache for 50 s
+    return token;
+  }, [getToken]);
+
   const fetchData = useCallback(async () => {
+    // Skip fetch when the browser tab is hidden — saves network + DB load
+    if (document.hidden) return;
+
     try {
-      const token = await getToken();
+      const token = await getCachedToken();
       if (!token) return;
 
       const params: Record<string, string> = { page: String(page), limit: '20' };
@@ -55,7 +74,7 @@ export function useTransactions({
     } finally {
       setLoading(false);
     }
-  }, [getToken, page, tenantFilter, statusFilter]);
+  }, [getCachedToken, page, tenantFilter, statusFilter]);
 
   // Initial fetch + auto-refresh
   useEffect(() => {

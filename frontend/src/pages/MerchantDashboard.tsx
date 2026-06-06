@@ -21,7 +21,30 @@ export function MerchantDashboard() {
   const [loading,      setLoading]      = useState(true);
   const [page,         setPage]         = useState(1);
   const [lastUpdated,  setLastUpdated]  = useState<Date>(new Date());
-  
+
+  // Cached Clerk token — avoids calling getToken() on every 5-second poll
+  const tokenRef    = useRef<string | null>(null);
+  const tokenExpRef = useRef<number>(0);
+
+  const getCachedToken = useCallback(async () => {
+    const now = Date.now();
+    if (tokenRef.current && now < tokenExpRef.current) return tokenRef.current;
+    const token = await getToken();
+    tokenRef.current    = token;
+    tokenExpRef.current = now + 50_000;   // cache for 50 s
+    return token;
+  }, [getToken]);
+
+  // Startup skeleton — visible for AT LEAST 3 s AND until first data arrives
+  const startupTimerFiredRef  = useRef(false);  // true after 3 s
+  const firstDataLoadedRef    = useRef(false);  // true after first txn fetch
+
+  const tryDismissStartup = useCallback(() => {
+    if (startupTimerFiredRef.current && firstDataLoadedRef.current) {
+      setStartupLoading(false);
+    }
+  }, []);
+
   // Admin Features States
   const isOrgAdmin = membership?.role === 'org:admin' || membership?.role === 'admin';
   const [activeTab, setActiveTab] = useState<'transactions' | 'analytics' | 'flagged' | 'news' | 'members'>('transactions');
@@ -88,7 +111,7 @@ export function MerchantDashboard() {
     }
     setNewsLoading(true);
     try {
-      const token = await getToken();
+      const token = await getCachedToken();
       if (!token) return;
       const res = await api.getNews(token, forceRefresh);
       setNews(res.articles);
@@ -98,28 +121,48 @@ export function MerchantDashboard() {
     } finally {
       setNewsLoading(false);
     }
-  }, [getToken, lastNewsFetch]);
+  }, [getCachedToken, lastNewsFetch]);
 
-  const fetchData = useCallback(async () => {
+  const fetchTransactions = useCallback(async (targetPage: number, showLoadingIndicator = false) => {
+    if (document.hidden) return;
+    if (showLoadingIndicator) {
+      setLoading(true);
+    }
     try {
-      const token = await getToken();
+      const token = await getCachedToken();
       if (!token) return;
 
-      const [txnRes, statsRes] = await Promise.all([
-        api.getTransactions(token, { page: String(page), limit: '20' }),
-        api.getStats(token),
-      ]);
-
+      const txnRes = await api.getTransactions(token, { page: String(targetPage), limit: '20' });
       setTransactions(txnRes.data);
       setPagination(txnRes.pagination);
-      setStats(statsRes);
       setLastUpdated(new Date());
+      // Mark data as arrived; dismiss skeleton only if 4 s timer also fired
+      firstDataLoadedRef.current = true;
+      tryDismissStartup();
     } catch (err) {
-      console.error('Error fetching merchant data:', err);
+      console.error('Error fetching transactions:', err);
     } finally {
       setLoading(false);
     }
-  }, [getToken, page]);
+  }, [getCachedToken, tryDismissStartup]);
+
+  const fetchStats = useCallback(async () => {
+    if (document.hidden) return;
+    try {
+      const token = await getCachedToken();
+      if (!token) return;
+
+      const statsRes = await api.getStats(token);
+      setStats(statsRes);
+    } catch (err) {
+      console.error('Error fetching stats:', err);
+    }
+  }, [getCachedToken]);
+
+  const handleRefreshAll = useCallback(() => {
+    fetchTransactions(page, true);
+    fetchStats();
+  }, [fetchTransactions, fetchStats, page]);
 
   // Fetch news when news tab becomes active
   useEffect(() => {
@@ -128,26 +171,42 @@ export function MerchantDashboard() {
     }
   }, [activeTab, fetchNews]);
 
-  // deliberate startup loading skeleton timer
+  // Fetch transactions when page changes (handles initial load too)
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setStartupLoading(false);
-    }, 3500);
-    return () => clearTimeout(timer);
-  }, []);
+    fetchTransactions(page, true);
+  }, [fetchTransactions, page]);
 
-  // Initial fetch + auto-refresh every 5 seconds
+  // Initial stats fetch + 4s timer for initial startup loading
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 5000);
+    fetchStats();
+    const timer = setTimeout(() => {
+      startupTimerFiredRef.current = true;
+      tryDismissStartup();
+    }, 4000); // 4 seconds initial skeleton delay!
+    return () => clearTimeout(timer);
+  }, [fetchStats, tryDismissStartup]);
+
+  // Background poll for transactions (every 5s)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchTransactions(page, false);
+    }, 5000);
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [fetchTransactions, page]);
+
+  // Background poll for stats (every 15s)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchStats();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [fetchStats]);
 
   // Trigger Gemini explanation
   const handleExplain = async (id: string) => {
     setExplainingId(id);
     try {
-      const token = await getToken();
+      const token = await getCachedToken();
       if (!token) return;
       
       const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
@@ -211,7 +270,7 @@ export function MerchantDashboard() {
       reviewToastTimerRef.current = setTimeout(() => setReviewToast(null), 6000);
 
       // Refresh data from server in background
-      fetchData();
+      handleRefreshAll();
     } catch (err: any) {
       setReviewMessages(prev => ({ ...prev, [txnId]: { type: 'error', text: err.message || 'Failed to submit review. Please try again.' } }));
     } finally {
@@ -362,24 +421,28 @@ export function MerchantDashboard() {
             title={organization?.name || "My Transactions"}
             subtitle={isOrgAdmin ? "Merchant Dashboard (Administrator)" : "Merchant Dashboard (Member)"}
             lastUpdated={lastUpdated}
-            onRefresh={fetchData}
+            onRefresh={handleRefreshAll}
           />
 
           {/* KPI Strip — always 5 cards */}
           {startupLoading ? (
             <div className="grid grid-cols-5 gap-4 mt-4 mb-4">
               {[...Array(5)].map((_, i) => (
-                <div key={i} className="h-[88px] bg-white dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 flex flex-col justify-between animate-pulse">
-                  <div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-2/3" />
-                  <div className="h-6 bg-zinc-200 dark:bg-zinc-800 rounded w-1/2" />
+                <div
+                  key={i}
+                  className="relative flex flex-col gap-2 p-4 rounded-xl bg-white/70 backdrop-blur-xl border border-white/50 shadow-sm dark:bg-zinc-900/70 dark:border-zinc-700/40 dark:shadow-none h-[88px] animate-pulse justify-between"
+                >
+                  <div className="absolute inset-x-0 top-0 h-px rounded-t-xl bg-white/80 dark:bg-white/5 pointer-events-none" />
+                  <div className="h-2.5 bg-zinc-200 dark:bg-zinc-800 rounded w-1/2 animate-pulse" />
+                  <div className="h-5 bg-zinc-200 dark:bg-zinc-800 rounded w-2/3 animate-pulse" />
                 </div>
               ))}
             </div>
           ) : (
             <div className="grid grid-cols-5 gap-4 mt-4 mb-4">
               <KPICard label="Total Transactions" value={stats?.total || '—'} accent="zinc" infoText={stats?.ai_insights?.total} loadingInfo={!stats?.ai_insights} />
-              <KPICard label="Approval Rate" value={stats ? `${stats.approval_rate || 0}%` : '—'} accent="green" infoText={stats?.ai_insights?.approval_rate} loadingInfo={!stats?.ai_insights} />
-              <KPICard label="Rejection Rate" value={stats && (Number(stats.total) - Number(stats.pending)) > 0 ? `${((Number(stats.rejected) / (Number(stats.total) - Number(stats.pending))) * 100).toFixed(1)}%` : '0%'} accent="red" infoText={stats?.ai_insights?.rejection_rate} loadingInfo={!stats?.ai_insights} />
+              <KPICard label="Approval Rate" value={stats ? `${Number(stats.approval_rate || 0).toFixed(2)}%` : '—'} accent="green" infoText={stats?.ai_insights?.approval_rate} loadingInfo={!stats?.ai_insights} />
+              <KPICard label="Rejection Rate" value={stats && (Number(stats.total) - Number(stats.pending)) > 0 ? `${((Number(stats.rejected) / (Number(stats.total) - Number(stats.pending))) * 100).toFixed(2)}%` : '0%'} accent="red" infoText={stats?.ai_insights?.rejection_rate} loadingInfo={!stats?.ai_insights} />
               <KPICard label="Flagged" value={stats?.flagged || '—'} sub="Requires review" accent="amber" infoText={stats?.ai_insights?.flagged} loadingInfo={!stats?.ai_insights} />
               <KPICard label="Total Volume" value={stats ? `$${Number(stats.total_volume).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'} accent="blue" infoText={stats?.ai_insights?.total_volume} loadingInfo={!stats?.ai_insights} />
             </div>
@@ -410,13 +473,15 @@ export function MerchantDashboard() {
                 </button>
               ))}
             </div>
-            <button
-              onClick={handleDownloadReport}
-              disabled={downloadingReport}
-              className="flex items-center gap-1.5 px-3 py-1.5 mb-1 text-xs text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-all font-semibold disabled:opacity-50"
-            >
-              {downloadingReport ? <><div className="w-3 h-3 border-2 border-blue-400/20 border-t-blue-400 rounded-full animate-spin" />Generating...</> : <><FileDown size={12} />30-Day Report</>}
-            </button>
+            <div className="flex items-center gap-2 mb-1">
+              <button
+                onClick={handleDownloadReport}
+                disabled={downloadingReport}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-all font-semibold disabled:opacity-50"
+              >
+                {downloadingReport ? <><div className="w-3 h-3 border-2 border-blue-400/20 border-t-blue-400 rounded-full animate-spin" />Generating...</> : <><FileDown size={12} />Export Report</>}
+              </button>
+            </div>
           </div>
         </div>{/* end sticky header */}
 
@@ -452,7 +517,7 @@ export function MerchantDashboard() {
                 <button
                   id="prev-page-btn"
                   disabled={page <= 1}
-                  onClick={() => setPage((p: number) => p - 1)}
+                  onClick={() => { setLoading(true); setPage((p: number) => p - 1); }}
                   className="text-xs px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   ← Prev
@@ -461,7 +526,7 @@ export function MerchantDashboard() {
                 <button
                   id="next-page-btn"
                   disabled={page >= pagination.pages}
-                  onClick={() => setPage((p: number) => p + 1)}
+                  onClick={() => { setLoading(true); setPage((p: number) => p + 1); }}
                   className="text-xs px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   Next →
@@ -473,14 +538,22 @@ export function MerchantDashboard() {
 
         {/* ═══════════════════════ TAB: ANALYTICS ═══════════════════════ */}
         {activeTab === 'analytics' && (
-          <div key={tabKey} className="space-y-6">
+          <div key={tabKey} className="space-y-3">
             {/* Row 1: Volume Velocity Chart + AI Analysis */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 space-y-6">
                 {/* Volume Velocity Chart Card */}
                 {startupLoading ? (
-                  <div className="h-64 bg-white dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg p-5 animate-pulse flex items-center justify-center text-zinc-400 dark:text-zinc-500 text-xs font-mono">
-                    Initializing Real-time Risk Analytics...
+                  <div className="bg-white/70 dark:bg-zinc-900/70 backdrop-blur-xl border border-white/50 dark:border-zinc-700/40 rounded-xl p-5 h-[270px] flex flex-col justify-between animate-pulse">
+                    <div>
+                      <div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-1/4 mb-2 animate-pulse" />
+                      <div className="h-2.5 bg-zinc-200 dark:bg-zinc-800 rounded w-1/2 animate-pulse" />
+                    </div>
+                    <div className="h-32 bg-zinc-100 dark:bg-zinc-800/50 rounded-lg w-full flex items-end p-2 gap-2 animate-pulse">
+                      {[...Array(12)].map((_, idx) => (
+                        <div key={idx} className="bg-zinc-200 dark:bg-zinc-700 rounded-t w-full" style={{ height: `${Math.floor(Math.random() * 60) + 25}%` }} />
+                      ))}
+                    </div>
                   </div>
                 ) : (
                   (() => {
@@ -665,22 +738,49 @@ export function MerchantDashboard() {
                 )}
 
                 {/* Gemini AI chart explanation card */}
-                <div className="bg-blue-500/5 border border-blue-200 dark:border-blue-900/30 rounded-lg p-5">
-                  <div className="flex items-center gap-2 mb-2 text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
-                    AI Trend Analysis
+                {startupLoading ? (
+                  <div className="bg-blue-500/5 border border-blue-200 dark:border-blue-900/30 rounded-xl p-5 animate-pulse">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-4 h-4 bg-blue-200/50 dark:bg-blue-800/50 rounded" />
+                      <div className="h-3 bg-blue-200/50 dark:bg-blue-800/50 rounded w-1/4" />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="h-2.5 bg-blue-100/50 dark:bg-blue-900/30 rounded w-full animate-pulse" />
+                      <div className="h-2.5 bg-blue-100/50 dark:bg-blue-900/30 rounded w-5/6 animate-pulse" />
+                    </div>
                   </div>
-                  <p className="text-xs text-zinc-700 dark:text-zinc-300 font-sans leading-relaxed">
-                    {stats?.ai_insights?.chart_explanation || 'Analyzing transaction trends and velocity metrics over the last hour...'}
-                  </p>
-                </div>
+                ) : (
+                  <div className="bg-blue-500/5 border border-blue-200 dark:border-blue-900/30 rounded-lg p-5">
+                    <div className="flex items-center gap-2 mb-2 text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                      AI Trend Analysis
+                    </div>
+                    <p className="text-xs text-zinc-700 dark:text-zinc-300 font-sans leading-relaxed">
+                      {stats?.ai_insights?.chart_explanation || 'Analyzing transaction trends and velocity metrics over the last hour...'}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Right Column: Status Donut Chart */}
-              <div className="space-y-6">
+              <div className="space-y-3">
                 {startupLoading ? (
-                  <div className="h-[350px] bg-white dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg p-5 animate-pulse flex items-center justify-center text-zinc-400 dark:text-zinc-500 text-xs font-mono">
-                    Loading Distribution Analytics...
+                  <div className="bg-white/70 dark:bg-zinc-900/70 backdrop-blur-xl border border-white/50 dark:border-zinc-700/40 rounded-xl p-4 h-[335px] flex flex-col justify-between animate-pulse">
+                    <div>
+                      <div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-1/3 mb-2 animate-pulse" />
+                      <div className="h-2 bg-zinc-200 dark:bg-zinc-800 rounded w-1/2 animate-pulse" />
+                    </div>
+                    <div className="flex items-center justify-center h-40 animate-pulse">
+                      <div className="w-[120px] h-[120px] rounded-full border-[12px] border-zinc-200 dark:border-zinc-800 animate-pulse" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mt-2 animate-pulse">
+                      {[...Array(4)].map((_, idx) => (
+                        <div key={idx} className="flex items-center gap-2 p-1 border border-transparent">
+                          <div className="w-2.5 h-2.5 rounded-full bg-zinc-200 dark:bg-zinc-800 shrink-0" />
+                          <div className="h-2 bg-zinc-200 dark:bg-zinc-800 rounded w-2/3" />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ) : (
                   (() => {
@@ -717,13 +817,13 @@ export function MerchantDashboard() {
                     };
 
                     return (
-                      <div className="bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg p-5 flex flex-col items-center relative">
-                        <div className="self-start w-full mb-4">
+                      <div className="bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 flex flex-col items-center relative">
+                        <div className="self-start w-full mb-2">
                           <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider mb-0.5">Status Distribution</h3>
                           <p className="text-[10px] text-zinc-400 dark:text-zinc-500">Transaction distribution breakdown. Hover over arcs to inspect.</p>
                         </div>
 
-                        <div className="relative w-[200px] h-[200px] flex items-center justify-center my-2">
+                        <div className="relative w-[160px] h-[160px] flex items-center justify-center my-1">
                           <svg className="w-full h-full transform -scale-x-100" viewBox="0 0 200 200">
                             <defs>
                               <linearGradient id="approvedDonutGradient" x1="0" y1="0" x2="1" y2="1">
@@ -792,7 +892,7 @@ export function MerchantDashboard() {
                         </div>
 
                         {/* Legend list */}
-                        <div className="w-full grid grid-cols-2 gap-2 mt-4">
+                        <div className="w-full grid grid-cols-2 gap-1.5 mt-2">
                           {slices.map((slice) => {
                             const isHovered = hoveredSlice === slice.key;
                             return (
@@ -850,9 +950,21 @@ export function MerchantDashboard() {
             </div>
 
             {/* Row 2: Line Chart + Pie Chart */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Line Chart: Transaction Count Trend */}
-              {!startupLoading && (() => {
+              {startupLoading ? (
+                <div className="bg-white/70 dark:bg-zinc-900/70 backdrop-blur-xl border border-white/50 dark:border-zinc-700/40 rounded-xl p-5 h-[270px] flex flex-col justify-between animate-pulse">
+                  <div>
+                    <div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-1/3 mb-2 animate-pulse" />
+                    <div className="h-2 bg-zinc-200 dark:bg-zinc-800 rounded w-1/2 animate-pulse" />
+                  </div>
+                  <div className="h-32 bg-zinc-100 dark:bg-zinc-800/50 rounded-lg w-full flex items-end p-2 gap-2 animate-pulse">
+                    {[...Array(12)].map((_, idx) => (
+                      <div key={idx} className="bg-zinc-200 dark:bg-zinc-700 rounded-t w-full" style={{ height: `${Math.floor(Math.random() * 60) + 20}%` }} />
+                    ))}
+                  </div>
+                </div>
+              ) : (() => {
                 const rawChartData = stats?.chart_data || [];
                 const chartData = rawChartData.length > 0 ? rawChartData.slice(-12) : [...Array(12)].map((_, idx) => {
                   const time = new Date(Date.now() - (11 - idx) * 5 * 60000);
@@ -919,7 +1031,25 @@ export function MerchantDashboard() {
               })()}
 
               {/* Pie Chart: Amount Distribution */}
-              {!startupLoading && (() => {
+              {startupLoading ? (
+                <div className="bg-white/70 dark:bg-zinc-900/70 backdrop-blur-xl border border-white/50 dark:border-zinc-700/40 rounded-xl p-5 h-[270px] flex flex-col justify-between animate-pulse">
+                  <div>
+                    <div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-1/3 mb-2 animate-pulse" />
+                    <div className="h-2 bg-zinc-200 dark:bg-zinc-800 rounded w-1/2 animate-pulse" />
+                  </div>
+                  <div className="flex items-center gap-6 h-36">
+                    <div className="w-[140px] h-[140px] rounded-full border-8 border-zinc-200 dark:border-zinc-800 flex-shrink-0 animate-pulse" />
+                    <div className="flex flex-col gap-3 flex-1">
+                      {[...Array(5)].map((_, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-zinc-200 dark:bg-zinc-800 rounded-sm animate-pulse" />
+                          <div className="h-2.5 bg-zinc-200 dark:bg-zinc-800 rounded w-2/3 animate-pulse" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (() => {
                 const ranges = [
                   { label: '$0 - $1K', min: 0, max: 1000, color: '#60a5fa' },
                   { label: '$1K - $5K', min: 1000, max: 5000, color: '#34d399' },

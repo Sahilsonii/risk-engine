@@ -114,64 +114,61 @@ router.get('/stats', async (req: Request, res: Response) => {
 
   try {
     const redis  = await getRedisClient();
-    client = await pool.connect();
-    await client.query('BEGIN');
-    await client.query(`SET LOCAL ROLE ${dbRole}`);
 
-    if (dbRole === 'app_user') {
-      await client.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
-    }
-
-    const statsResult = await client.query(`
-      SELECT
-        COUNT(*)                                                          AS total,
-        COUNT(*) FILTER (WHERE status = 'APPROVED')                      AS approved,
-        COUNT(*) FILTER (WHERE status = 'REJECTED')                      AS rejected,
-        COUNT(*) FILTER (WHERE status = 'FLAGGED')                       AS flagged,
-        COUNT(*) FILTER (WHERE status = 'PENDING')                       AS pending,
-        ROUND(
-          COUNT(*) FILTER (WHERE status = 'APPROVED')::numeric /
-          NULLIF(COUNT(*) FILTER (WHERE status != 'PENDING'), 0) * 100,
-          1
-        )                                                                 AS approval_rate,
-        COALESCE(SUM(amount), 0)                                          AS total_volume,
-        COALESCE(AVG(amount), 0)                                          AS avg_amount
-      FROM transactions
-    `);
-
-    // Fetch chart data: 5-minute intervals for the last 1 hour
-    const chartResult = await client.query(`
-      SELECT 
-        date_trunc('minute', created_at) - (CAST(extract(minute FROM created_at) AS integer) % 5) * interval '1 minute' AS bucket,
-        COUNT(*)::integer AS count,
-        COALESCE(SUM(amount), 0)::numeric AS volume,
-        COUNT(*) FILTER (WHERE status = 'REJECTED' OR status = 'FLAGGED')::integer AS flagged_rejected
-      FROM transactions
-      WHERE created_at >= NOW() - INTERVAL '1 hour'
-      GROUP BY bucket
-      ORDER BY bucket ASC
-    `);
-
-    await client.query('COMMIT');
-
-    // Queue depth from Redis (admin only)
-    let queueDepth = 0;
-    if (dbRole === 'app_admin') {
-      try {
-        queueDepth = await redis.lLen('transactions:queue');
-      } catch (err) {
-        logger.warn({ err }, 'Could not fetch queue depth from Redis');
-      }
-    }
-
-    // Per-tenant breakdown (admin only)
+    // ── Short-lived DB cache (5 s) to absorb back-to-back polls ────────────
+    const dbCacheKey = `api:stats:db:${dbRole}:${tenantId || 'global'}`;
+    let statsRow: any = null;
+    let chartRows: any[] = [];
     let tenantBreakdown: any[] = [];
-    if (dbRole === 'app_admin') {
-      const tbClient = await pool.connect();
-      try {
-        await tbClient.query('BEGIN');
-        await tbClient.query('SET LOCAL ROLE app_admin');
-        const tbResult = await tbClient.query(`
+
+    const dbCached = await redis.get(dbCacheKey).catch(() => null);
+    if (dbCached) {
+      const parsed = JSON.parse(dbCached);
+      statsRow        = parsed.statsRow;
+      chartRows       = parsed.chartRows;
+      tenantBreakdown = parsed.tenantBreakdown;
+    } else {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      await client.query(`SET LOCAL ROLE ${dbRole}`);
+
+      if (dbRole === 'app_user') {
+        await client.query(`SET LOCAL app.current_tenant = '${tenantId}'`);
+      }
+
+      const statsResult = await client.query(`
+        SELECT
+          COUNT(*)                                                          AS total,
+          COUNT(*) FILTER (WHERE status = 'APPROVED')                      AS approved,
+          COUNT(*) FILTER (WHERE status = 'REJECTED')                      AS rejected,
+          COUNT(*) FILTER (WHERE status = 'FLAGGED')                       AS flagged,
+          COUNT(*) FILTER (WHERE status = 'PENDING')                       AS pending,
+          ROUND(
+            COUNT(*) FILTER (WHERE status = 'APPROVED')::numeric /
+            NULLIF(COUNT(*) FILTER (WHERE status != 'PENDING'), 0) * 100,
+            1
+          )                                                                 AS approval_rate,
+          COALESCE(SUM(amount), 0)                                          AS total_volume,
+          COALESCE(AVG(amount), 0)                                          AS avg_amount
+        FROM transactions
+      `);
+
+      // Fetch chart data: 5-minute intervals for the last 1 hour
+      const chartResult = await client.query(`
+        SELECT 
+          date_trunc('minute', created_at) - (CAST(extract(minute FROM created_at) AS integer) % 5) * interval '1 minute' AS bucket,
+          COUNT(*)::integer AS count,
+          COALESCE(SUM(amount), 0)::numeric AS volume,
+          COUNT(*) FILTER (WHERE status = 'REJECTED' OR status = 'FLAGGED')::integer AS flagged_rejected
+        FROM transactions
+        WHERE created_at >= NOW() - INTERVAL '1 hour'
+        GROUP BY bucket
+        ORDER BY bucket ASC
+      `);
+
+      // Per-tenant breakdown (admin only) — reuse same client/transaction
+      if (dbRole === 'app_admin') {
+        const tbResult = await client.query(`
           SELECT
             tenant_id,
             COUNT(*) AS total,
@@ -183,14 +180,29 @@ router.get('/stats', async (req: Request, res: Response) => {
           GROUP BY tenant_id
           ORDER BY total DESC
         `);
-        await tbClient.query('COMMIT');
         tenantBreakdown = tbResult.rows;
-      } finally {
-        tbClient.release();
+      }
+
+      await client.query('COMMIT');
+
+      statsRow  = statsResult.rows[0];
+      chartRows = chartResult.rows;
+
+      // Cache DB result for 5 seconds
+      await redis.setEx(dbCacheKey, 5, JSON.stringify({ statsRow, chartRows, tenantBreakdown })).catch(() => {});
+    }
+
+    // Queue depth from Redis (admin only)
+    let queueDepth = 0;
+    if (dbRole === 'app_admin') {
+      try {
+        queueDepth = await redis.lLen('transactions:queue');
+      } catch (err) {
+        logger.warn({ err }, 'Could not fetch queue depth from Redis');
       }
     }
 
-    // AI insights caching
+    // AI insights — serve from cache immediately; regenerate in background if stale
     const cacheKey = `api:stats:insights:${dbRole}:${tenantId || 'global'}`;
     let aiInsights = {
       total: 'Total number of transactions processed by the risk engine.',
@@ -204,15 +216,17 @@ router.get('/stats', async (req: Request, res: Response) => {
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
+        // Cache hit — use immediately (no Gemini wait)
         aiInsights = JSON.parse(cached);
       } else {
+        // Cache miss — respond with defaults now, generate Gemini insights in background
         const apiKey = process.env.gemini_api_key || process.env.GEMINI_API_KEY;
         if (apiKey) {
-          const stats = statsResult.rows[0];
-          const totalCount = parseInt(stats.total, 10);
+          const stats = statsRow;
+          const totalCount   = parseInt(stats.total, 10);
           const pendingCount = parseInt(stats.pending, 10);
           const rejectedCount = parseInt(stats.rejected, 10);
-          const rejectionRate = (totalCount - pendingCount) > 0 
+          const rejectionRate = (totalCount - pendingCount) > 0
             ? ((rejectedCount / (totalCount - pendingCount)) * 100).toFixed(1)
             : '0.0';
 
@@ -228,7 +242,7 @@ router.get('/stats', async (req: Request, res: Response) => {
             - Total Volume: $${Number(stats.total_volume).toLocaleString('en-US', { maximumFractionDigits: 0 })}
             
             Chart Data (5-min intervals for last hour):
-            ${JSON.stringify(chartResult.rows)}
+            ${JSON.stringify(chartRows)}
 
             Based on this data, generate a raw JSON object (no markdown, no backticks, no other text) with these exact keys:
             {
@@ -242,37 +256,43 @@ router.get('/stats', async (req: Request, res: Response) => {
           `;
 
           const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent?key=${apiKey}`;
-          const response = await fetch(geminiUrl, {
+
+          // Fire-and-forget: do NOT await — let the response go now
+          fetch(geminiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }]
-            })
-          });
-
-          if (response.ok) {
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+          }).then(async (response) => {
+            if (!response.ok) return;
             const resData = await response.json() as any;
             const rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
             const cleanedText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-            const parsed = JSON.parse(cleanedText);
-            if (parsed.total && parsed.approval_rate && parsed.rejection_rate && parsed.flagged && parsed.total_volume && parsed.chart_explanation) {
-              aiInsights = parsed;
-              await redis.setEx(cacheKey, 60, JSON.stringify(aiInsights));
+            try {
+              const parsed = JSON.parse(cleanedText);
+              if (parsed.total && parsed.approval_rate && parsed.rejection_rate && parsed.flagged && parsed.total_volume && parsed.chart_explanation) {
+                const redisClient = await getRedisClient();
+                await redisClient.setEx(cacheKey, 60, JSON.stringify(parsed));
+                logger.debug({ cacheKey }, 'AI insights refreshed in background');
+              }
+            } catch (parseErr) {
+              logger.warn({ parseErr }, 'Failed to parse background Gemini response');
             }
-          }
+          }).catch((err) => {
+            logger.warn({ err }, 'Background Gemini AI insights fetch failed');
+          });
         }
       }
     } catch (err) {
-      logger.warn({ err }, 'Failed to load/generate AI KPI insights');
+      logger.warn({ err }, 'Failed to load AI KPI insights from cache');
     }
 
     logger.info({ path: '/api/stats', status: 200 }, 'Response sent');
 
     res.json({
-      ...statsResult.rows[0],
+      ...statsRow,
       queue_depth:       queueDepth,
       tenant_breakdown:  tenantBreakdown,
-      chart_data:        chartResult.rows,
+      chart_data:        chartRows,
       ai_insights:       aiInsights,
     });
   } catch (err) {
