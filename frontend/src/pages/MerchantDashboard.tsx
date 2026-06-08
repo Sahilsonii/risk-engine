@@ -14,13 +14,14 @@ export function MerchantDashboard() {
     memberships: { pageSize: 50 },
     invitations: { pageSize: 50 }
   });
-  
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [stats,        setStats]        = useState<Stats | null>(null);
   const [pagination,   setPagination]   = useState<Pagination | null>(null);
   const [loading,      setLoading]      = useState(true);
   const [page,         setPage]         = useState(1);
   const [lastUpdated,  setLastUpdated]  = useState<Date>(new Date());
+  const [flaggedTransactions, setFlaggedTransactions] = useState<Transaction[]>([]);
+  const [flaggedLoading,      setFlaggedLoading]      = useState(false);
 
   // Cached Clerk token — avoids calling getToken() on every 5-second poll
   const tokenRef    = useRef<string | null>(null);
@@ -146,6 +147,24 @@ export function MerchantDashboard() {
     }
   }, [getCachedToken, tryDismissStartup]);
 
+  const fetchFlaggedTransactions = useCallback(async (showLoadingIndicator = false) => {
+    if (document.hidden) return;
+    if (showLoadingIndicator) {
+      setFlaggedLoading(true);
+    }
+    try {
+      const token = await getCachedToken();
+      if (!token) return;
+
+      const txnRes = await api.getTransactions(token, { status: 'FLAGGED,REJECTED,SUSPICIOUS', limit: '50' });
+      setFlaggedTransactions(txnRes.data);
+    } catch (err) {
+      console.error('Error fetching flagged transactions:', err);
+    } finally {
+      setFlaggedLoading(false);
+    }
+  }, [getCachedToken]);
+
   const fetchStats = useCallback(async () => {
     if (document.hidden) return;
     try {
@@ -162,7 +181,8 @@ export function MerchantDashboard() {
   const handleRefreshAll = useCallback(() => {
     fetchTransactions(page, true);
     fetchStats();
-  }, [fetchTransactions, fetchStats, page]);
+    fetchFlaggedTransactions(true);
+  }, [fetchTransactions, fetchStats, fetchFlaggedTransactions, page]);
 
   // Fetch news when news tab becomes active
   useEffect(() => {
@@ -179,20 +199,24 @@ export function MerchantDashboard() {
   // Initial stats fetch + 4s timer for initial startup loading
   useEffect(() => {
     fetchStats();
+    fetchFlaggedTransactions(true);
     const timer = setTimeout(() => {
       startupTimerFiredRef.current = true;
       tryDismissStartup();
     }, 4000); // 4 seconds initial skeleton delay!
     return () => clearTimeout(timer);
-  }, [fetchStats, tryDismissStartup]);
+  }, [fetchStats, fetchFlaggedTransactions, tryDismissStartup]);
 
   // Background poll for transactions (every 5s)
   useEffect(() => {
     const interval = setInterval(() => {
       fetchTransactions(page, false);
+      if (activeTab === 'flagged') {
+        fetchFlaggedTransactions(false);
+      }
     }, 5000);
     return () => clearInterval(interval);
-  }, [fetchTransactions, page]);
+  }, [fetchTransactions, fetchFlaggedTransactions, page, activeTab]);
 
   // Background poll for stats (every 15s)
   useEffect(() => {
@@ -246,19 +270,41 @@ export function MerchantDashboard() {
 
       const shortId = txnId.substring(0, 8);
 
+      const updateState = (newStatus: string, reviewerId?: string, reviewedAt?: string) => {
+        const updateFn = (prev: any[]) =>
+          prev.map((t: any) =>
+            t.id === txnId
+              ? {
+                  ...t,
+                  status: newStatus,
+                  review_notes: notes,
+                  reviewed_by: reviewerId,
+                  reviewed_at: reviewedAt,
+                }
+              : t
+          );
+        setTransactions(updateFn);
+        setFlaggedTransactions(updateFn);
+      };
+
       if (result.overridden) {
         // Member tried to approve/reject — backend overrode to FLAGGED
-        const toastMsg = `Transaction ${shortId}… status kept as FLAGGED — only admins can approve or reject. Your notes were saved.`;
+        const newStatus = result.transaction?.status || 'FLAGGED';
+        const toastMsg = `Transaction ${shortId}… status kept as FLAGGED (Waiting for Admin Approval) — only admins can approve or reject. Your notes were saved.`;
         setReviewToast({ type: 'warning', text: toastMsg });
+        updateState(newStatus, result.transaction?.reviewed_by, result.transaction?.reviewed_at);
         // Clear per-txn error
         setReviewMessages(prev => { const n = { ...prev }; delete n[txnId]; return n; });
+        // Close the review panel
+        setExpandedReviewId(null);
       } else {
-        // Successful admin status change
+        // Successful admin status change or member flagging/suspicious setting
         const newStatus = result.transaction?.status || status;
-        const toastMsg = `✓ Transaction ${shortId}… status changed to ${newStatus}.`;
+        const toastMsg = isOrgAdmin
+          ? `✓ Transaction ${shortId}… status changed to ${newStatus}.`
+          : `✓ Transaction ${shortId}… status set to ${newStatus} (Waiting for Admin Approval).`;
         setReviewToast({ type: 'success', text: toastMsg });
-        // Optimistically update local transaction status so badge updates immediately
-        setTransactions(prev => prev.map((t: any) => t.id === txnId ? { ...t, status: newStatus, review_notes: notes, reviewed_by: result.transaction?.reviewed_by } : t));
+        updateState(newStatus, result.transaction?.reviewed_by, result.transaction?.reviewed_at);
         // Clear per-txn messages
         setReviewMessages(prev => { const n = { ...prev }; delete n[txnId]; return n; });
         // Close the review panel
@@ -387,8 +433,7 @@ export function MerchantDashboard() {
     }
   };
 
-  // Get all flagged/rejected/suspicious transactions
-  const flaggedTransactions = transactions.filter((t: any) => t.status === 'FLAGGED' || t.status === 'REJECTED' || t.status === 'SUSPICIOUS' || t.id === expandedReviewId);
+  // Flagged/Rejected transactions are retrieved directly from the backend and stored in state
 
   // Status options based on role
   const getStatusOptions = (currentStatus: string) => {
@@ -1176,7 +1221,7 @@ export function MerchantDashboard() {
                 </button>
               </div>
             )}
-            {startupLoading ? (
+            {startupLoading || flaggedLoading ? (
               <div className="space-y-3">
                 {[...Array(3)].map((_, i) => (
                   <div key={i} className="h-20 bg-white dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg animate-pulse" />
@@ -1224,6 +1269,11 @@ export function MerchantDashboard() {
                                 txn.status === 'SUSPICIOUS' ? 'bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20' :
                                 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20'
                               }`}>{txn.status}</span>
+                              {(txn.status === 'FLAGGED' || txn.status === 'SUSPICIOUS') && txn.reviewed_by && (
+                                <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/5 px-2 py-0.5 border border-amber-500/10 rounded font-sans">
+                                  Waiting for Admin Approval
+                                </span>
+                              )}
                               <span className="text-xs text-zinc-400 dark:text-zinc-500 font-mono">{new Date(txn.created_at).toLocaleTimeString()}</span>
                             </div>
                           </div>

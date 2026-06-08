@@ -86,7 +86,14 @@ export function TransactionTable({ transactions, loading, showTenant = false, sh
                 {formatAmount(Number(txn.amount))}
               </td>
               <td className="px-4 py-3 text-center">
-                <StatusBadge status={txn.status} />
+                <div className="flex flex-col items-center justify-center gap-0.5">
+                  <StatusBadge status={txn.status} />
+                  {(txn.status === 'FLAGGED' || txn.status === 'SUSPICIOUS') && txn.reviewed_by && (
+                    <span className="text-[9px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/5 px-1.5 py-0.5 border border-amber-500/10 rounded mt-0.5 whitespace-nowrap">
+                      Pending Admin
+                    </span>
+                  )}
+                </div>
               </td>
               <td className="px-4 py-3 font-mono text-xs text-zinc-400 dark:text-zinc-500">
                 {formatDate(txn.created_at)}

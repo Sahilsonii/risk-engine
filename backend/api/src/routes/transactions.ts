@@ -46,8 +46,15 @@ router.get('/transactions', async (req: Request, res: Response) => {
     let   paramIdx             = 1;
 
     if (status) {
-      conditions.push(`status = $${paramIdx++}::transaction_status`);
-      params.push(status);
+      if (status.includes(',')) {
+        const statusList = status.split(',');
+        const placeholders = statusList.map(() => `$${paramIdx++}::transaction_status`).join(', ');
+        conditions.push(`status IN (${placeholders})`);
+        params.push(...statusList);
+      } else {
+        conditions.push(`status = $${paramIdx++}::transaction_status`);
+        params.push(status);
+      }
     }
 
     // Admins can filter by tenant_id via query param
